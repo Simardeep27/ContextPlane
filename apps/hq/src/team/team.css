@@ -60,3 +60,10 @@ button.link{border:0;padding:0 0 0 8px;font-size:11px;color:#9fc0fd;background:n
 .secondary{border:1px solid #2f3b40;border-radius:10px;margin-bottom:12px;padding:0 14px}.secondary>summary{cursor:pointer;padding:10px 0;font-size:13px;color:#c9d6da}.secondary[open]{padding-bottom:12px}
 @media(max-width:900px){.stepper,.episode-metrics{grid-template-columns:1fr 1fr}}@media(max-width:560px){.stepper,.episode-metrics{grid-template-columns:1fr}}
 .episode.sample{border-color:#6a5a3a}.sample-badge{border-color:#c9a45f;color:#f0d59c}
+
+/* Live project updates share the episode layout without replay fixtures. */
+.mode-live .stepper{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.mode-live .stepper li{overflow-wrap:anywhere}
+.team-activity{padding-left:1.4rem;display:grid;gap:1rem}
+.team-activity p{margin:.3rem 0;overflow-wrap:anywhere}
+.team-activity small{color:var(--muted,#9caeb3)}
