@@ -82,15 +82,20 @@ export class Outbox {
   }
   async enqueue(observation) {
     return this.mutate(state => {
+      const heartbeat = observation.kind === 'Heartbeat';
+      // Check under the same lock as Stop/SessionEnd so a timer cannot reopen
+      // a stopped session. Older spool versions wait for a fresh native event.
+      if (heartbeat && (state.terminal || !state.activity || state.activity.status === 'stopped' ||
+          state.pending.length)) return null;
       const eventId = `${this.config.identity}:${digest(observation.key).slice(0, 32)}`;
       if (state.seen.includes(eventId)) return eventId;
       const sequence = ++state.sequence; const occurredAt = new Date().toISOString();
       const stale = state.terminal && observation.kind !== 'SessionStart';
-      const status = observation.kind === 'SessionEnd' || observation.kind === 'Stop' ? 'stopped'
+      const status = heartbeat ? state.activity.status : observation.kind === 'SessionEnd' || observation.kind === 'Stop' ? 'stopped'
         : observation.kind === 'PostToolUseFailure' ? 'blocked' : 'working';
       if (observation.kind === 'SessionStart') state.terminal = false;
       if (observation.kind === 'SessionEnd') state.terminal = true;
-      const event = { eventId, type: observation.kind === 'SessionStart' ? 'work_started' :
+      const event = { eventId, type: heartbeat ? 'heartbeat' : observation.kind === 'SessionStart' ? 'work_started' :
         observation.kind === 'PostToolUseFailure' ? 'blocked' : status === 'stopped' ? 'work_finished' : 'progress',
         actor: this.config.identity, instanceId: this.config.instanceId, sessionId: this.config.sessionId,
         task: this.config.task, sequence, occurredAt, evidenceKind: 'client_observation',
@@ -100,6 +105,15 @@ export class Outbox {
         blockedOn: status === 'blocked' ? ['Client reported tool failure; outcome not inspected'] : [],
         nextAction: status === 'working' ? 'Continue authorized work' : 'Review client outcome before claiming completion',
         lastEventId: eventId, updatedAt: occurredAt, evidence: [], outcomeVerified: false };
+      if (heartbeat) {
+        Object.assign(content, { currentTask: state.activity.summary, lastActivityAt: state.activity.at,
+          heartbeatAt: occurredAt, heartbeatIntervalSeconds: 60 });
+        Object.assign(event, { lastActivityAt: state.activity.at, heartbeatAt: occurredAt });
+        state.lastHeartbeatAt = occurredAt;
+      } else if (!stale) {
+        state.activity = { status, summary: observation.summary, at: occurredAt };
+        content.lastActivityAt = occurredAt;
+      }
       state.pending.push({ eventId, message: { identity: this.config.identity, scope: this.config.scope,
         recipient: this.config.recipient, message_id: eventId, body: JSON.stringify(event), evidence_ids: [] },
         surface: stale ? null : { identity: this.config.identity, scope: this.config.scope,

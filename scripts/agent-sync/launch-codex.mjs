@@ -6,6 +6,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { configuration } from './codex.mjs';
 import { rootFor, boxes, deliver } from './cli.mjs';
+import { startHeartbeat } from './heartbeat.mjs';
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 async function main() {
   const repo = fs.realpathSync(process.cwd());
@@ -36,11 +37,16 @@ async function main() {
   process.env.CP_SYNC_INSTANCE = randomUUID(); process.env.CP_SYNC_REPO = repo; process.env.CP_SYNC_CODEX = '1';
   configuration(process.env, 'validate');
   const child = spawn('codex', args, { cwd: repo, env: process.env, stdio: 'inherit' });
+  const stopHeartbeat = startHeartbeat({
+    boxes: () => boxes(root).filter(box => box.config.instanceId === process.env.CP_SYNC_INSTANCE && box.config.client === 'codex-hooks'),
+    deliver, isAlive: () => !!child.pid && child.exitCode === null && child.signalCode === null && !child.killed,
+    onError: () => console.error('ContextPlane UNSYNCHRONIZED: heartbeat delivery pending; inspect status/flush.'),
+  });
   const int = () => child.kill('SIGINT'), term = () => child.kill('SIGTERM');
   process.on('SIGINT', int); process.on('SIGTERM', term);
   let code;
   try { code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', (c, signal) => resolve(c ?? (signal === 'SIGINT' ? 130 : 143))); }); }
-  finally { process.off('SIGINT', int); process.off('SIGTERM', term); }
+  finally { await stopHeartbeat(); process.off('SIGINT', int); process.off('SIGTERM', term); }
   const own = boxes(root).filter(box => box.config.instanceId === process.env.CP_SYNC_INSTANCE && box.config.client === 'codex-hooks');
   let pending = !own.length;
   if (!own.length) console.error('ContextPlane UNCOVERED: no Codex hook was captured. Review /hooks trust and restart through this launcher.');

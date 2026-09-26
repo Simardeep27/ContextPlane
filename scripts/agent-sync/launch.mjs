@@ -6,6 +6,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boxes, deliver, rootFor } from './cli.mjs';
 import { configuration } from './claude.mjs';
+import { startHeartbeat } from './heartbeat.mjs';
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 async function main() {
   const repo = fs.realpathSync(process.cwd());
@@ -28,13 +29,19 @@ async function main() {
   const forward = signal => child?.kill(signal);
   const sigint = () => forward('SIGINT'); const sigterm = () => forward('SIGTERM');
   process.on('SIGINT', sigint); process.on('SIGTERM', sigterm);
-  let code;
+  let code, stopHeartbeat;
   try {
     child = spawn('claude', ['--settings', settings, ...args], { cwd: repo, env: process.env, stdio: 'inherit' });
+    stopHeartbeat = startHeartbeat({
+      boxes: () => boxes(root).filter(box => box.config.instanceId === process.env.CP_SYNC_INSTANCE),
+      deliver, isAlive: () => !!child.pid && child.exitCode === null && child.signalCode === null && !child.killed,
+      onError: () => console.error('ContextPlane UNSYNCHRONIZED: heartbeat delivery pending; inspect status/flush.'),
+    });
     code = await new Promise((resolve, reject) => {
       child.once('error', reject); child.once('exit', (exitCode, signal) => resolve(exitCode ?? (signal === 'SIGINT' ? 130 : 143)));
     });
   } finally {
+    await stopHeartbeat?.();
     process.off('SIGINT', sigint); process.off('SIGTERM', sigterm);
     fs.unlinkSync(settings);
   }

@@ -81,6 +81,45 @@ observed process exit. No timestamp proves continued liveness.
 
 ## Delivery, interruption and bounds
 
+### 60-second launcher heartbeat
+
+Both `launch.mjs` (Claude) and `launch-codex.mjs` (Codex) now attempt a
+`heartbeat` report every 60 seconds through the existing MCP outbox while their
+child process is alive and its last covered observation is working or blocked.
+Start through the launcher commands above to enable it. No server cron, service
+deployment, detached daemon, new credentials, or model call is needed.
+
+A heartbeat preserves the last observed activity summary and status. Its
+`heartbeatAt` is separate from `lastActivityAt`; `outcomeVerified` remains false.
+It observes process presence, not useful progress or a completed task. A blocked
+tool remains blocked. `Stop` pauses heartbeats; a subsequent covered tool event
+resumes them, and `SessionEnd` disables them. Because these adapters do not capture
+prompt submission, a new turn after Stop is uncovered until its first covered
+tool event. SessionStart alone also does not prove a turn is busy. A hung client
+can still have a live process. Consumers should show heartbeat freshness and
+actual activity age separately, and treat missed heartbeats as unknown/stale.
+
+Only hook-created sessions belonging to this launcher invocation are covered.
+Ordinary Claude project-settings hooks still report events but have no periodic
+timer. Existing sessions, desktop clients, and unwrapped invocations are not
+automatically enrolled. Everyone must pull this change and start a covered
+launcher session; existing Codex hook trust requirements still apply. The shared
+server cannot force a remote client to report or infer activity from silence.
+
+Ticks never overlap. Pending reports are retried before another heartbeat is
+created, so an outage does not add a heartbeat backlog each minute. Delivery
+delays, native-hook contention, machine sleep, and network failure can postpone
+the 60-second attempt; this is not a delivery deadline guarantee. Launcher exit
+cancels the timer and drains its current tick before publishing the final stop.
+Force-killing the launcher leaves only already captured reports for recovery.
+Heartbeats share the existing bounded spool/remembered-ID budget described below;
+long sessions can reach that limit and will report `UNSYNCHRONIZED`.
+
+The heartbeat tests use a controlled timer with the production 60,000 ms interval
+and exercise active/blocked/idle/ended state, exact outage retries, bounded queue
+growth, overlapping ticks, and shutdown drain. They do not establish that every
+teammate has adopted the launcher or that a native session has run live.
+
 Each report and exact status payload is atomically written and fsynced before
 network I/O. Directories are mode 0700 and state files 0600. The private spool
 permits at most 64 session directories, each with 256 pending reports, 4096
