@@ -24,9 +24,22 @@ async function main() {
     await client.connect(transport as unknown as Transport);
     const tools = await client.listTools();
     const names = tools.tools.map(tool => tool.name).sort();
-    if (names.join(',') !== 'get_project_context,read_operation') throw new Error('UNEXPECTED_TOOL_CATALOG');
+    const expected = ['acknowledge', 'get_context', 'get_project_context', 'publish_surface', 'read_operation',
+      'receive_inbox', 'register_agent', 'register_dependency', 'send_message'];
+    if (names.join(',') !== expected.join(',')) throw new Error('UNEXPECTED_TOOL_CATALOG');
     const context = await client.callTool({ name: 'get_project_context', arguments: {} });
     if (context.isError) throw new Error('CONTEXT_READ_FAILED');
+    const scope = 'project:context-plane'; const identity = 'smoke:mcp';
+    for (const request of [
+      { name: 'register_agent', arguments: { identity, scope } },
+      { name: 'get_context', arguments: { identity, scope } },
+      { name: 'receive_inbox', arguments: { identity, scope, limit: 1, lease_seconds: 10 } },
+      { name: 'publish_surface', arguments: { identity, scope, surface_name: 'deployment-smoke',
+        kind: 'smoke_status', content: { status: 'passed' } } },
+    ]) {
+      const result = await client.callTool(request);
+      if (result.isError) throw new Error(`${request.name.toUpperCase()}_FAILED`);
+    }
     console.log(JSON.stringify({ event: 'mcp_smoke_passed', tools: names }));
   } finally {
     await client.close();

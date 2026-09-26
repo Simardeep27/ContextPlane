@@ -31,7 +31,7 @@ export function createApp(options: AppOptions) {
   app.get('/readyz', async (_req, res) => {
     try {
       await options.ready();
-      res.json({ atlas: 'ready', service: 'context-plane', mode: 'shared-project-read-only', tools: implementedTools });
+      res.json({ atlas: 'ready', service: 'context-plane', mode: 'shared-project-coordination', tools: implementedTools });
     } catch { res.status(503).json({ atlas: 'unavailable', code: 'STORAGE_UNAVAILABLE' }); }
   });
   app.post('/mcp', async (req, res) => {
