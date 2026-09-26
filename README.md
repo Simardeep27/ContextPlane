@@ -17,7 +17,8 @@ npm test
 npm run typecheck
 ```
 
-- [Run the local MongoDB/API/MCP/HQ stack](docs/LOCAL_RUN.md).
+- [Run against the team's selected Atlas database](docs/TEAM_RUN.md), the current MCP configuration.
+- [Run an isolated local MongoDB/API/MCP/HQ stack](docs/LOCAL_RUN.md), with its separate client configuration.
 - [Run the isolated migration and crash-recovery proof](docs/E2E_RUNBOOK.md).
 - [Understand the units, authority and stores](docs/ONTOLOGY.md).
 - [Read the implemented domain/data model](docs/DOMAIN_MODEL.md).

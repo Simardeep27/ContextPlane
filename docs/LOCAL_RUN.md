@@ -83,9 +83,12 @@ credential. The launcher passes the resolved token to its MCP child only.
 
 ## Connect Codex
 
-The checked-in `.codex/config.toml` targets the local MCP and invokes
-`node scripts/context-plane-headers.mjs`. Start Codex from the repository root
-after the stack is ready; restart its MCP connection after a config change.
+The checked-in `.codex/config.toml` now selects the **team Atlas helper** from
+[TEAM_RUN.md](TEAM_RUN.md). To use this isolated local fallback, change its
+`http_headers_helper` to `node scripts/context-plane-headers.mjs`, or use the
+stdio example below. Do not combine the team helper/token with the local
+launcher/token. Start Codex from the repository root after the selected stack
+is ready; restart its MCP connection after a config change.
 The helper emits headers only to the client's private protocol pipe. Do not run
 it by itself or capture its output in a log.
 
