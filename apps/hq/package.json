@@ -14,7 +14,8 @@
     "build": "vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
     "test": "tsx --test shared/*.test.ts server/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev:team:server": "tsx watch server/team-dev.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
