@@ -1,5 +1,7 @@
 # Run the isolated reference demo
 
+Latest resource update: the user chose the existing personal cluster while the team finishes shared setup. Atlas runs now require the verified nonsecret `ATLAS_EXPECTED_HOST` explicitly; there is no team-host default. Set it to the hostname confirmed in resource config, then run `npm run demo:atlas`. The isolated test database remains `shivraj_experiments`; this proposed test target and effective access still need confirmation before live execution. The team's app database is never a fallback. Earlier team-cluster setup details below are historical context.
+
 Node 24 and npm are required. From this checkout:
 
 ```sh

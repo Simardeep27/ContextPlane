@@ -101,9 +101,11 @@ async function main() {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const uri = atlasUri();
   if (uri) {
+    const expectedHost = process.env.ATLAS_EXPECTED_HOST;
+    assert.ok(expectedHost && /^[a-z0-9.-]+\.mongodb\.net$/.test(expectedHost), 'Set the verified nonsecret ATLAS_EXPECTED_HOST before an Atlas run; no connection attempted.');
     let correctHost = false;
-    try { const parsed = new URL(uri); correctHost = parsed.protocol === 'mongodb+srv:' && parsed.hostname === 'cluster0.a4picb.mongodb.net'; } catch { /* Never print the parsed credential. */ }
-    assert.equal(correctHost, true, 'Atlas E2E requires the selected team cluster host; no connection attempted.');
+    try { const parsed = new URL(uri); correctHost = parsed.protocol === 'mongodb+srv:' && parsed.hostname === expectedHost; } catch { /* Never print the parsed credential. */ }
+    assert.equal(correctHost, true, 'Atlas URI does not match the explicitly selected cluster host; no connection attempted.');
   }
   await start(true, uri);
   console.log(`E2E: ${mode} persistence ready; unique project ${scope.projectId}`);
