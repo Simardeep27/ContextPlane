@@ -15,3 +15,7 @@ export interface Storage {
   /** Values whose key starts with `keyPrefix`, ordered by key. */
   list<T>(scope: ProjectScope, kind: CollectionKind, keyPrefix: string, limit: number): Promise<T[]>;
 }
+/** Demo/test reset of one project's rows. Never exposed through the adapter. */
+export interface ResettableStorage extends Storage {
+  deleteScope(scope: ProjectScope): Promise<void>;
+}

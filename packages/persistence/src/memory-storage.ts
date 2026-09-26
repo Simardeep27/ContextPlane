@@ -1,10 +1,10 @@
 import type { ProjectScope } from '@context-plane/contracts';
-import type { CollectionKind, Storage, StorageTransaction } from './storage.js';
+import type { CollectionKind, ResettableStorage, StorageTransaction } from './storage.js';
 import { scopedKey } from './validation.js';
 
 type Row = { value: unknown; cursor?: number };
 /** In-process transactional test double. Share this object across restart fixtures. */
-export class MemoryStorage implements Storage {
+export class MemoryStorage implements ResettableStorage {
   private rows = new Map<string, Row>();
   private tail: Promise<unknown> = Promise.resolve();
   constructor(private readonly clock: () => Date = () => new Date()) {}
@@ -46,5 +46,14 @@ export class MemoryStorage implements Storage {
       return rowKind === kind && orgId === scope.orgId && projectId === scope.projectId && key!.startsWith(keyPrefix)
         ? [{ key: key!, value: row.value as T }] : [];
     }).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)).slice(0, limit).map(row => row.value));
+  }
+  async deleteScope(scope: ProjectScope): Promise<void> {
+    scopedKey(scope, 'state');
+    await (this.tail = this.tail.then(() => {
+      for (const encoded of [...this.rows.keys()]) {
+        const [orgId, projectId] = JSON.parse(JSON.parse(encoded)[1] as string) as string[];
+        if (orgId === scope.orgId && projectId === scope.projectId) this.rows.delete(encoded);
+      }
+    }));
   }
 }

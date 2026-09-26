@@ -19,17 +19,27 @@ npm test            # builds, then node --test on dist/**/*.test.js
 npm run typecheck
 ```
 
-Tests use the built-in `node:test` runner against compiled output, so always build first. Single test file / single test:
+Workspaces resolve `@context-plane/contracts` (and persistence) from `dist/`, so rebuild a package before typechecking/testing its dependents. Contracts tests run from compiled output; persistence and scenario tests run TypeScript via `node --import tsx --test`. Single test file / single test:
 
 ```sh
-npm run build -w @context-plane/contracts
-node --test packages/contracts/dist/contracts.test.js
 node --test --test-name-pattern="cannot self-approve" packages/contracts/dist/contracts.test.js
+node --import tsx --test --test-name-pattern="authorizes only" packages/persistence/test/memory.test.ts
 ```
+
+MongoDB Atlas (sandbox cluster; `MONGODB_URI` in the root `.env`):
+
+```sh
+npm run scenario:seed   # reset + seed the Dev A/Dev B scenario into context_plane_poc
+CONTEXT_PLANE_ATLAS_TESTS=1 node --env-file=.env --import tsx --test packages/persistence/test/atlas.test.ts
+```
+
+The live suite creates and removes a `cp_persistence_test_<uuid>` database. Atlas's `readWriteAnyDatabase` cannot `dropDatabase`, so cleanup drops collections instead.
+
+Work is tracked as the MVP-01..09 backlog in `docs/issues/` (GitHub issues #11–#19).
 
 ## Architecture
 
-Only `packages/contracts` exists; it freezes the boundary types for the planned components: Context API, worker, web app, persistence adapter, registered runner, and deterministic evaluator. New components should consume these types rather than redefine them.
+Packages: `contracts` (shared boundary types for the planned API, worker, runner, evaluator, and UI), `persistence` (`DurablePersistenceAdapter` over MongoDB or an in-memory fixture), and `scenario` (deterministic Dev A/Dev B fixture + seed). New components consume contract types and inject the adapter; never import persistence internals or expose raw `Storage` to agents.
 
 Core model (`packages/contracts/src/contracts.ts`):
 - **Event-sourced, project-scoped.** Every command/event carries `ProjectScope` (`orgId` + `projectId`). Commands carry `expectedRevision` + `idempotencyKey` (optimistic concurrency); events carry monotonic `revision` and a durable `cursor`. `ProjectProjection` (runs, access requests, timeline) is derived from events.
@@ -39,11 +49,15 @@ Core model (`packages/contracts/src/contracts.ts`):
 - **Versioned changes.** Cross-service changes are pinned by `ChangeCheckVersion` (`candidateHash`, `dependencyRevision`, `policyEpoch`); stale candidates are rejected. `apply_change` publishes only the exact candidate that passed `run_checks`.
 - **Learning loop.** `EvaluatorAdapter` scores a candidate rule on a hashed dataset (`unsafeCasesCaught` vs `validCasesBlocked`); promotion is human-only.
 
-Adapters (`adapters.ts`): `PersistenceAdapter` (intended to be MongoDB), `ModelAdapter` (OpenRouter only), `RunnerAdapter`, `EvaluatorAdapter`.
+Adapters (`adapters.ts`): `PersistenceAdapter`, `ModelAdapter` (OpenRouter only), `RunnerAdapter`, `EvaluatorAdapter`. `LeaseToken` carries its `scope`; always pass back the whole token.
+
+Domain records (`records.ts`): dependency revisions, candidates, check results, publication authorizations, policy candidates, and policy versions, written via `saveRecord` (trusted API/seed) or inside `commitStep` (worker). Persistence enforces storage invariants only (scope, per-record CAS revision, immutability of evidence records, dependency head +1, authorization only for passing checks at the current head/epoch); workflow decisions belong to core. `staleVersionReasons()` gives machine-readable reason codes for version tuples.
+
+Persistence (`packages/persistence`): every mutation in a project runs in one MongoDB transaction that bumps a per-project guard document, serializing writes and providing the server clock. Collections `cp_projects`, `cp_runs`, `cp_events`, `cp_receipts`, `cp_records`, keyed by `JSON.stringify([orgId, projectId, key])`. Errors are sanitized to `INVALID_INPUT | CONFLICT | LEASE_LOST | IDEMPOTENCY_CONFLICT | STORAGE_UNAVAILABLE`. See its README for the worker commit sequence.
 
 Agent tools (`tools.ts`): 14 tools with strict JSON schemas (`additionalProperties: false`) and per-role allowlists for the synthetic demo roles `pm | orders | billing | notifications`. Tests enforce that no role gets an approve/promote tool — keep it that way when adding tools, and add every new tool to `toolNames`, `toolDefinitions`, and the relevant allowlists.
 
-Fixtures (`src/fixtures/access-run.ts`): the canonical scenario — Orders run blocks on `demo.staging.orders:read`, PM approves, run resumes, completes with a receipted protected read. Synthetic data only; use it as the integration target for new components.
+Fixtures: `contracts/src/fixtures/access-run.ts` (Orders run blocks on access, PM approves, run completes) and `scenario/src/fixture.ts` (the minimum-demo flow: Orders contract revision 7 → 8, Dev A's stale Billing candidate, the combined candidate, Dev B's publication command, and the frozen policy dataset). Scenario hashes are pinned in its tests. Synthetic data only.
 
 ## Conventions
 

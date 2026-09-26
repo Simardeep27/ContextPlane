@@ -1,6 +1,6 @@
 import { MongoClient, MongoServerError, type Db } from 'mongodb';
 import type { ProjectScope } from '@context-plane/contracts';
-import type { CollectionKind, Storage, StorageTransaction } from './storage.js';
+import type { CollectionKind, ResettableStorage, StorageTransaction } from './storage.js';
 import { identifier, requireThat, sanitized, scopedKey } from './validation.js';
 
 interface Row {
@@ -15,7 +15,7 @@ interface Row {
 }
 const kinds: readonly CollectionKind[] = ['projects', 'runs', 'events', 'receipts', 'records'];
 
-export class MongoStorage implements Storage {
+export class MongoStorage implements ResettableStorage {
   constructor(private readonly client: MongoClient, private readonly db: Db) {}
   private collection(kind: CollectionKind) {
     return this.db.collection<Row>('cp_' + kind, { readConcern: { level: 'majority' }, readPreference: 'primary',
@@ -75,6 +75,12 @@ export class MongoStorage implements Storage {
     scopedKey(scope, 'state');
     return sanitized(async () => (await this.collection('events').find({ orgId: scope.orgId,
       projectId: scope.projectId, cursor: { $gt: after } }).sort({ cursor: 1 }).limit(limit).toArray()).map(row => row.value as T));
+  }
+  async deleteScope(scope: ProjectScope): Promise<void> {
+    scopedKey(scope, 'state');
+    await sanitized(async () => {
+      for (const kind of kinds) await this.collection(kind).deleteMany({ orgId: scope.orgId, projectId: scope.projectId });
+    });
   }
   async list<T>(scope: ProjectScope, kind: CollectionKind, keyPrefix: string, limit: number): Promise<T[]> {
     scopedKey(scope, 'state');
