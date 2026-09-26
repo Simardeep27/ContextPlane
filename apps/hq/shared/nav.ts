@@ -5,4 +5,5 @@ export const navLinks = [
   { href: '/graph.html', label: 'Dependencies' },
   { href: '/verified.html', label: 'Verified run' },
   { href: '/architecture.html', label: 'Architecture' },
+  { href: '/slides/index.html', label: 'Slides' },
 ] as const;

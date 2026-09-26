@@ -1,0 +1,123 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/favicon.svg"></head><body style="margin:0">
+<title>Company Harness · Results</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --ground: #0e1220;
+    --line: #232940;
+    --ink: #ebe8df;
+    --muted: #7d839b;
+    --faint: #2e3552;
+    --pre: #ff5b4f;
+    --post: #6fd69c;
+    --loop: #4fb6c2;
+  }
+  html, body { height: 100%; }
+  body { background: var(--ground); color: var(--ink); font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; display: grid; place-items: center; padding-inline: 16px; }
+  .slide { width: min(100%, 1400px); aspect-ratio: 16 / 9; max-height: 100%; }
+  svg { width: 100%; height: 100%; display: block; }
+  .big { font-family: "Archivo", "Arial Narrow", sans-serif; font-weight: 850; font-stretch: 72%; }
+  .t { font-size: 16px; fill: var(--muted); }
+  .l { font-size: 20px; fill: var(--ink); font-weight: 600; }
+  .grow { stroke-dasharray: 3000; stroke-dashoffset: 3000; animation: draw 2.4s ease-out .2s forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) { .grow { animation: none; stroke-dashoffset: 0; } }
+</style>
+
+<div class="slide"><svg id="s" viewBox="0 0 1600 900" role="img" aria-label="Merged pull requests over time: 1.4 per hour before the shared harness, 6.4 per hour after, feeding a recursive improvement loop"></svg></div>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg', svg = document.getElementById('s');
+const el = (tag, a, p = svg, txt) => { const n = document.createElementNS(NS, tag); for (const k in a) n.setAttribute(k, a[k]); if (txt != null) n.textContent = txt; p.appendChild(n); return n; };
+const m = t => { const [h, mm] = t.split(':').map(Number); return h * 60 + mm; };
+
+// Real data, EDT, Sept 26. Merged PRs into the ContextPlane trunk.
+const PRS = ['13:38','13:49','15:16','15:16','15:17','15:21','15:22','16:02','16:15','16:19','16:26','16:28','16:31','16:37','16:40'];
+// Commits per 30 min across all four repos, all branches.
+const COMMITS = { '10:00':2,'10:30':0,'11:00':0,'11:30':7,'12:00':9,'12:30':2,'13:00':3,'13:30':13,'14:00':9,'14:30':13,'15:00':11,'15:30':4,'16:00':23,'16:30':6 };
+const START = '10:00', END = '16:45', LIVE = '15:30';
+
+const X0 = 90, X1 = 1040, Y0 = 790, Y1 = 250, YMAX = 16;
+const x = t => X0 + (m(t) - m(START)) / (m(END) - m(START)) * (X1 - X0);
+const y = v => Y0 - v / YMAX * (Y0 - Y1);
+
+// Headline
+el('text', { x: 60, y: 150, class: 'big', 'font-size': 150, fill: 'var(--post)' }, svg, '4.6×');
+el('text', { x: 400, y: 100, class: 'l' }, svg, 'merged PRs per hour');
+el('text', { x: 400, y: 135, class: 't' }, svg, 'after agents started sharing one ledger');
+
+// Regions
+el('rect', { x: x(LIVE), y: Y1 - 10, width: X1 - x(LIVE), height: Y0 - Y1 + 10, fill: 'rgba(111,214,156,.07)' });
+// Commit bars (context)
+const bw = (x('10:30') - x('10:00')) - 6;
+for (const [t, n] of Object.entries(COMMITS)) {
+  const h = n / 23 * 150;
+  el('rect', { x: x(t) + 3, y: Y0 - h, width: bw, height: h, fill: 'var(--faint)' });
+}
+// Axes
+el('line', { x1: X0, x2: X1, y1: Y0, y2: Y0, stroke: 'var(--line)', 'stroke-width': 2 });
+for (let h = 10; h <= 16; h++) el('text', { x: x(h + ':00'), y: Y0 + 28, class: 't', 'text-anchor': 'middle' }, svg, h + ':00');
+for (const v of [0, 5, 10, 15]) {
+  el('line', { x1: X0, x2: X1, y1: y(v), y2: y(v), stroke: 'var(--line)', 'stroke-dasharray': v ? '2 6' : '' });
+  el('text', { x: X0 - 14, y: y(v) + 5, class: 't', 'text-anchor': 'end' }, svg, v);
+}
+
+// Cumulative step line
+let d = `M${x(START)},${y(0)}`, c = 0;
+PRS.forEach(t => { d += ` H${x(t)} V${y(++c)}`; });
+d += ` H${x(END)}`;
+const split = x(LIVE);
+const clipPre = el('clipPath', { id: 'pre' }); el('rect', { x: 0, y: 0, width: split, height: 900 }, clipPre);
+const clipPost = el('clipPath', { id: 'post' }); el('rect', { x: split, y: 0, width: 1600, height: 900 }, clipPost);
+el('path', { d, fill: 'none', stroke: 'var(--pre)', 'stroke-width': 5, 'stroke-linejoin': 'round', 'clip-path': 'url(#pre)', class: 'grow' });
+el('path', { d, fill: 'none', stroke: 'var(--post)', 'stroke-width': 5, 'stroke-linejoin': 'round', 'clip-path': 'url(#post)', class: 'grow' });
+
+// Harness-live marker
+el('line', { x1: split, x2: split, y1: Y1 - 20, y2: Y0, stroke: 'var(--ink)', 'stroke-width': 2 });
+el('text', { x: split - 10, y: Y1 - 30, class: 'l', 'text-anchor': 'end', 'font-size': 18 }, svg, 'ledger live 15:30');
+
+// Rate labels
+el('text', { x: x('12:10'), y: y(4.2), class: 'big', 'font-size': 64, fill: 'var(--pre)', 'text-anchor': 'middle' }, svg, '1.4 / h');
+el('text', { x: x('12:10'), y: y(4.2) + 30, class: 't', 'text-anchor': 'middle' }, svg, '5 h, 4 repos, then a merge storm');
+el('text', { x: 952, y: y(4.2), class: 'big', 'font-size': 64, fill: 'var(--post)', 'text-anchor': 'middle' }, svg, '6.4 / h');
+el('text', { x: 952, y: y(4.2) + 30, class: 't', 'text-anchor': 'middle' }, svg, '8 PRs in 75 min');
+
+// Legend
+el('line', { x1: X0, x2: X0 + 30, y1: 855, y2: 855, stroke: 'var(--ink)', 'stroke-width': 4 });
+el('text', { x: X0 + 40, y: 861, class: 't' }, svg, 'merged PRs (cumulative)');
+el('rect', { x: X0 + 320, y: 846, width: 18, height: 18, fill: 'var(--faint)' });
+el('text', { x: X0 + 348, y: 861, class: 't' }, svg, 'commits / 30 min');
+
+// Recursive loop
+const CX = 1330, CY = 540, R = 170;
+el('text', { x: CX, y: 250, class: 'l', 'text-anchor': 'middle', fill: 'var(--loop)' }, svg, 'now: the harness improves itself');
+const nodes = [
+  { a: -90, big: '15', sm: 'agents on the ledger' },
+  { a: 0, big: '92', sm: 'reports logged' },
+  { a: 90, big: 'rules', sm: 'learned from breaks' },
+  { a: 180, big: 'fewer', sm: 'collisions' },
+];
+const pt = (a, r = R) => [CX + r * Math.cos(a * Math.PI / 180), CY + r * Math.sin(a * Math.PI / 180)];
+const defs = el('defs', {});
+const mk = el('marker', { id: 'arr', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
+el('path', { d: 'M0,0 L10,5 L0,10 z', fill: 'var(--loop)' }, mk);
+for (let i = 0; i < 4; i++) {
+  const a0 = nodes[i].a + 24, a1 = nodes[(i + 1) % 4].a - 24 + (i === 3 ? 360 : 0);
+  const [sx, sy] = pt(a0), [ex, ey] = pt(a1);
+  el('path', { d: `M${sx},${sy} A${R},${R} 0 0 1 ${ex},${ey}`, fill: 'none', stroke: 'var(--loop)', 'stroke-width': 3, 'marker-end': 'url(#arr)', 'stroke-dasharray': i === 2 ? '7 6' : '' });
+}
+nodes.forEach(n => {
+  const [nx, ny] = pt(n.a);
+  el('circle', { cx: nx, cy: ny, r: 50, fill: 'var(--ground)', stroke: 'var(--loop)', 'stroke-width': 2 });
+  el('text', { x: nx, y: ny + 8, class: 'big', 'font-size': n.big.length > 3 ? 26 : 38, fill: 'var(--ink)', 'text-anchor': 'middle' }, svg, n.big);
+  const off = n.a === 90 ? 76 : n.a === -90 ? -64 : 76;
+  el('text', { x: nx, y: ny + off, class: 't', 'text-anchor': 'middle' }, svg, n.sm);
+});
+el('text', { x: CX, y: CY - 6, class: 'big', 'font-size': 30, fill: 'var(--loop)', 'text-anchor': 'middle' }, svg, 'more throughput');
+el('text', { x: CX, y: CY + 26, class: 'big', 'font-size': 30, fill: 'var(--loop)', 'text-anchor': 'middle' }, svg, '→ more signal');
+el('text', { x: CX, y: 815, class: 't', 'text-anchor': 'middle' }, svg, 'dashed: rules → agents via MCP, in progress');
+</script>
+</body></html>

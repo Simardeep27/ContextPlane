@@ -1,0 +1,146 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/favicon.svg"></head><body style="margin:0">
+<title>Company Harness · Before the harness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --ground: #0e1220;
+    --line: #232940;
+    --ink: #ebe8df;
+    --muted: #7d839b;
+    --hh: #e2a444;
+    --cp: #4fb6c2;
+    --fork: #a08fe6;
+    --hm: #de8cab;
+    --alert: #ff5b4f;
+    --ok: #6fd69c;
+    --state: var(--alert);
+  }
+  body.post { --state: var(--ok); }
+  html, body { height: 100%; }
+  body { background: var(--ground); color: var(--ink); font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; display: grid; place-items: center; padding-inline: 16px; }
+  .slide { width: min(100%, 1400px); aspect-ratio: 16 / 9; max-height: 100%; }
+  svg { width: 100%; height: 100%; display: block; }
+  .big { font-family: "Archivo", "Arial Narrow", sans-serif; font-weight: 850; font-stretch: 72%; fill: var(--state); }
+  .sub { fill: var(--muted); font-size: 22px; }
+  .lane { fill: var(--ink); font-size: 20px; font-weight: 600; }
+  .tick { fill: var(--muted); font-size: 16px; }
+  .ev { transition: opacity .4s; }
+  body.post .ev.waste { opacity: .12; }
+  .pre, .post { transition: opacity .4s; }
+  .post { opacity: 0; }
+  body.post .pre { opacity: 0; }
+  body.post .post { opacity: 1; }
+  .switch { cursor: pointer; }
+  .switch:focus-visible { outline: 2px solid var(--state); }
+  @media (prefers-reduced-motion: reduce) { .ev, .pre, .post { transition: none; } }
+</style>
+
+<div class="slide"><svg id="s" viewBox="0 0 1600 900" role="img" aria-label="Commits by four people over five hours across four repos, with seven collisions"></svg></div>
+
+<script>
+const REPO = { hh: 'var(--hh)', cp: 'var(--cp)', fork: 'var(--fork)', hm: 'var(--hm)' };
+const LANES = ['Buddhh', 'Simardeep', 'Tanish', 'Shivraj'];
+// [time, lane, repo, merge?, count, waste?]
+const E = [
+  ['10:26',0,'hh',0,1],['10:29',0,'hh',0,1],['11:49',0,'hh',0,6,1],['12:03',0,'hh',0,3,1],['12:13',0,'hh',0,2,1],['12:22',0,'hh',0,3,1],
+  ['13:38',0,'cp',0,3],['13:39',0,'cp',1,1],['14:09',0,'cp',0,1],['14:20',0,'cp',0,2],
+  ['11:56',1,'cp',0,1],['13:15',1,'cp',0,1],['13:49',1,'cp',1,1],['13:55',1,'cp',0,2],['14:17',1,'cp',0,1],['14:28',1,'cp',0,1],['14:31',1,'cp',0,1],['14:33',1,'cp',1,1],['14:56',1,'cp',0,1],
+  ['13:35',2,'cp',0,2],['13:56',2,'cp',0,1,1],['14:24',2,'cp',0,1,1],['14:27',2,'cp',0,1,1],['14:45',2,'cp',1,1],['14:53',2,'cp',0,1],
+  ['12:28',3,'fork',0,1,1],['12:50',3,'hm',0,2,1],['13:18',3,'hm',0,3,1],['13:44',3,'cp',0,1],['13:47',3,'hm',0,1,1],['14:09',3,'hm',0,2,1],
+  ['14:46',3,'cp',0,3],['14:50',3,'hm',0,2,1],['14:58',3,'cp',1,3,1],['15:02',3,'cp',1,1,1],['15:12',3,'cp',1,1,1],['15:16',3,'cp',1,1,1],
+  ['15:17',3,'cp',1,1,1],['15:18',3,'cp',0,3],['15:21',3,'cp',1,2,1],['15:22',3,'hm',0,2,1],
+];
+// collisions: [t0, t1, lanes, word, catch time]
+const X = [
+  ['11:49','11:56',[0,1],'restart','11:56'],
+  ['12:13','12:22',[0],'2nd stack','12:13'],
+  ['12:28','12:50',[3],'+2 repos','12:28'],
+  ['13:56','13:56',[2],'orphan','13:56'],
+  ['14:17','14:27',[1,2],'built twice','14:24'],
+  ['14:20','14:56',[0,1],'same file ×3','14:28'],
+  ['14:58','15:22',[3],'merge storm','14:58'],
+];
+
+const m = t => { const [h, mm] = t.split(':').map(Number); return h * 60 + mm; };
+const L = 190, R = 1560, T0 = m('10:00'), T1 = m('15:35');
+const TOP = 250, LANE = 135;
+const x = t => L + (m(t) - T0) / (T1 - T0) * (R - L);
+const y = i => TOP + i * LANE + LANE / 2;
+const svg = document.getElementById('s');
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, a, p = svg, txt) => { const n = document.createElementNS(NS, tag); for (const k in a) n.setAttribute(k, a[k]); if (txt != null) n.textContent = txt; p.appendChild(n); return n; };
+
+// headline
+const pre = el('g', { class: 'pre' }), post = el('g', { class: 'post' });
+el('text', { x: 40, y: 150, class: 'big', 'font-size': 150 }, pre, '5h 00m');
+el('text', { x: 520, y: 105, class: 'sub' }, pre, '4 people · 4 repos · 3 stacks · 69 commits');
+el('text', { x: 520, y: 145, class: 'sub' }, pre, '7 collisions · 9 merges in the last 24 min');
+el('text', { x: 40, y: 150, class: 'big', 'font-size': 150 }, post, '7 / 7 caught');
+el('text', { x: 780, y: 105, class: 'sub' }, post, 'one ledger · one trunk');
+el('text', { x: 780, y: 145, class: 'sub' }, post, 'target behavior · not yet measured');
+
+// switch
+const sw = el('g', { class: 'switch', tabindex: 0, role: 'button', 'aria-label': 'Toggle pre / post harness' });
+el('rect', { x: 1400, y: 40, width: 160, height: 44, rx: 3, fill: 'none', stroke: 'var(--state)', 'stroke-width': 1.5 }, sw);
+const swt = el('text', { x: 1480, y: 69, 'text-anchor': 'middle', 'font-size': 16, 'font-weight': 600, fill: 'var(--state)', 'letter-spacing': 2 }, sw, 'PRE-HARNESS');
+
+// grid
+for (let h = 10; h <= 15; h++) {
+  const gx = x(h + ':00');
+  el('line', { x1: gx, x2: gx, y1: TOP - 10, y2: TOP + LANE * 4, stroke: 'var(--line)', 'stroke-width': 1.5 });
+  el('text', { x: gx, y: TOP - 22, class: 'tick', 'text-anchor': 'middle' }, svg, h + ':00');
+}
+LANES.forEach((n, i) => {
+  if (i) el('line', { x1: 40, x2: R, y1: TOP + i * LANE, y2: TOP + i * LANE, stroke: 'var(--line)' });
+  el('text', { x: 40, y: y(i) + 7, class: 'lane' }, svg, n);
+});
+
+// collisions
+X.forEach(([t0, t1, lanes, word, fix]) => {
+  const y0 = y(Math.min(...lanes)) - LANE / 2 + 12, y1 = y(Math.max(...lanes)) + LANE / 2 - 12;
+  const x0 = x(t0) - 16, x1 = x(t1) + 16;
+  const a = el('g', { class: 'pre' });
+  el('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 4, fill: 'rgba(255,91,79,.12)', stroke: 'var(--alert)', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, a);
+  el('text', { x: x0 + 4, y: y0 - 6, 'font-size': 15, 'font-weight': 600, fill: 'var(--alert)' }, a, word);
+  const b = el('g', { class: 'post' });
+  el('line', { x1: x(fix), x2: x(fix), y1: y0, y2: y1, stroke: 'var(--ok)', 'stroke-width': 3 }, b);
+  el('text', { x: x(fix) + 6, y: y0 - 6, 'font-size': 15, 'font-weight': 600, fill: 'var(--ok)' }, b, '✓ ' + word);
+});
+
+// commits
+const seen = {};
+E.forEach(([t, lane, repo, merge, n, waste]) => {
+  const k = lane + ':' + Math.round(m(t) / 3);
+  const off = (seen[k] = (seen[k] || 0) + 1) - 1;
+  const cx = x(t), cy = y(lane) + off * 22 - 6, r = 6 + Math.min(n, 6) * 2;
+  const g = el('g', { class: 'ev' + (waste ? ' waste' : '') });
+  if (merge) el('rect', { x: cx - r * .72, y: cy - r * .72, width: r * 1.44, height: r * 1.44, transform: `rotate(45 ${cx} ${cy})`, fill: 'var(--ground)', stroke: REPO[repo], 'stroke-width': 2.5 }, g);
+  else el('circle', { cx, cy, r, fill: REPO[repo] }, g);
+});
+
+// now
+el('line', { x1: x('15:26'), x2: x('15:26'), y1: TOP - 10, y2: TOP + LANE * 4, stroke: 'var(--ink)', 'stroke-width': 2 });
+el('text', { x: x('15:26'), y: TOP - 22, class: 'tick', 'text-anchor': 'middle', fill: 'var(--ink)' }, svg, 'now');
+
+// legend
+[['hh', 'harness-hackathon'], ['cp', 'ContextPlane'], ['fork', 'context-plane fork'], ['hm', 'hivemind']].forEach(([k, n], i) => {
+  const lx = 190 + i * 300;
+  el('circle', { cx: lx, cy: 855, r: 8, fill: REPO[k] });
+  el('text', { x: lx + 18, y: 861, class: 'tick' }, svg, n);
+});
+el('rect', { x: 1384, y: 848, width: 14, height: 14, transform: 'rotate(45 1391 855)', fill: 'none', stroke: 'var(--muted)', 'stroke-width': 2 });
+el('text', { x: 1410, y: 861, class: 'tick' }, svg, 'merge');
+
+function set(post) {
+  document.body.classList.toggle('post', post);
+  swt.textContent = post ? 'POST-HARNESS' : 'PRE-HARNESS';
+  try { history.replaceState(null, '', post ? '#post' : '#pre'); } catch (e) {}
+}
+sw.addEventListener('click', () => set(!document.body.classList.contains('post')));
+sw.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sw.dispatchEvent(new Event('click')); } });
+set(location.hash === '#post');
+</script>
+</body></html>
