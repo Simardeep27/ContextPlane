@@ -2,7 +2,6 @@ import { timingSafeEqual } from 'node:crypto';
 import express, { type ErrorRequestHandler } from 'express';
 import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { createDomainServer, implementedTools, type DomainHandlers, type Principal } from './domain.js';
 
 export interface AppOptions {
@@ -36,15 +35,10 @@ export function createApp(options: AppOptions) {
   });
   app.post('/mcp', async (req, res) => {
     const server = createDomainServer(options.principal, options.handlers);
-    // Omitting sessionIdGenerator selects the SDK's stateless mode. The explicit
-    // `undefined` shown in its docs is rejected when exactOptionalPropertyTypes
-    // is enabled. The released Node transport's accessor types also do not
-    // structurally satisfy its own Transport interface under that compiler
-    // option, so contain that upstream typing mismatch at this boundary.
     const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
     res.on('close', () => { void server.close().catch(() => {}); });
     try {
-      await server.connect(transport as unknown as Transport);
+      await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch {
       if (!res.headersSent) res.status(500).json({ jsonrpc: '2.0', id: null,

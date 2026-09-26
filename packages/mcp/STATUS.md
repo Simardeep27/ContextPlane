@@ -1,37 +1,24 @@
-# MCP worker migration — deployment candidate
+# MCP worker migration status
 
-Branch: `buddhh/mcp-worker`. Based on `wireframe` commit `b7095c8`, which
-includes the merged Atlas adapter.
+Deployed on 2026-09-26 from branch `buddhh/mcp-worker`.
+Worker version: `e1431d29-18be-44b1-91fa-31a9bc638967`.
+The existing worker/container application now runs the TypeScript MCP server
+against shared contracts and the Atlas persistence adapter.
 
-Implemented so far:
+Validated:
+- Workspace build and typecheck; 5 contract and 17 persistence tests.
+- All 11 MCP HTTP/stdio tests, including authentication and scope isolation.
+- Linux container build and Wrangler deployment dry-run.
+- Live authenticated Atlas readiness, both read tools, scope rejection, and reconnects.
+- Stdio bridge discovery and read against the deployed service.
 
-- TypeScript MCP HTTP server using the shared contracts and persistence adapter.
-- Server-bound project scope, bearer authentication, bounded requests/results,
-  and read handlers for `get_project_context` and `read_operation`.
-- Configuration to update the existing `context-plane-brain` Cloudflare worker,
-  preserving its container class, binding, migration and instance identity.
-- Container build files and generated Wrangler binding/runtime types.
+The configured scope has no saved projection: the live read returned `null`.
+No data was seeded or migrated. No neighboring source or env file was changed.
+The local Codex `context_plane` entry references the existing neighboring env
+file and built bridge, with 120-second startup/tool timeouts. Restart the client
+session to load it; a full Codex/Claude workflow has not been validated.
 
-Validation:
-
-- MCP and Worker type checks pass.
-- MCP HTTP/security integration tests cover bearer authentication, browser
-  origin rejection, readiness failures, MCP initialization, tool listing, and
-  a context tool call.
-- The production Docker image builds through `wrangler deploy --dry-run`.
-- `npm run smoke -w @context-plane/mcp` performs authenticated readiness and
-  MCP protocol checks against a deployed URL.
-
-Deployment notes:
-
-- `MONGODB_URI` and `CONTEXT_PLANE_API_TOKEN` must be installed as encrypted
-  Worker secrets. Never put either value in Wrangler vars or source control.
-- Proposed non-secret configuration targets `context_plane_poc`, `org_demo`,
-  and `project_context_plane`.
-- Client bridge/configuration and teammate onboarding remain unfinished.
-- Domain write handlers are not available in the current shared runtime and
-  are not exposed. This replaces the old Python tool catalog when deployed.
-- No fixture or production data is seeded by this service.
-
-Until the live smoke passes, the existing remote service should be treated as
-unchanged. No neighboring source or `.env` is modified or copied by this branch.
+Only `get_project_context` and `read_operation` are exposed. Domain writes and
+per-agent authorization remain pending the shared runtime. The shared token
+permits project reads; it does not identify individual agents. See [README](README.md)
+for teammate setup, configuration, and operational constraints.
