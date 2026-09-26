@@ -1,3 +1,4 @@
+import { noTelemetry, traceId, type Telemetry } from './telemetry.js';
 import { timingSafeEqual } from 'node:crypto';
 import express, { type ErrorRequestHandler } from 'express';
 import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
@@ -9,11 +10,29 @@ export interface AppOptions {
   principal: Principal;
   handlers: DomainHandlers;
   ready: () => Promise<void>;
+  telemetry?: Telemetry;
 }
 export function createApp(options: AppOptions) {
   if (options.token.length < 16) throw new Error('MCP_TOKEN_NOT_CONFIGURED');
   const availableTools = options.principal.allowedTools.filter(name => options.handlers[name] !== undefined);
+  const telemetry = options.telemetry ?? noTelemetry;
   const app = express(); app.disable('x-powered-by');
+  app.use((req, res, next) => {
+    const id = traceId(); const startedAt = Date.now();
+    res.locals.traceId = id;
+    res.set('X-Context-Plane-Trace-Id', id);
+    res.once('finish', () => {
+      const method = ['initialize', 'notifications/initialized', 'tools/list', 'tools/call', 'ping'].includes(req.body?.method)
+        ? req.body.method as string : 'other';
+      telemetry.record({ id, name: req.path === '/readyz' ? 'mcp.readiness' : `mcp.request.${method}`,
+        kind: 'chain', startedAt, endedAt: Date.now(),
+        ...(res.statusCode >= 400 ? { error: `HTTP_${res.statusCode}` } : {}),
+        metadata: { httpStatus: res.statusCode, orgId: options.principal.scope.orgId,
+          projectId: options.principal.scope.projectId },
+      });
+    });
+    next();
+  });
   app.use(hostHeaderValidation(['127.0.0.1', 'localhost', '[::1]']));
   app.use((req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -33,11 +52,11 @@ export function createApp(options: AppOptions) {
       await options.ready();
       res.json({ atlas: 'ready', service: 'context-plane',
         mode: availableTools.includes('register_agent') ? 'shared-project-coordination' : 'shared-project-read-only',
-        tools: availableTools });
+        tools: availableTools, ...(options.telemetry ? { tracing: telemetry.status() } : {}) });
     } catch { res.status(503).json({ atlas: 'unavailable', code: 'STORAGE_UNAVAILABLE' }); }
   });
   app.post('/mcp', async (req, res) => {
-    const server = createDomainServer(options.principal, options.handlers);
+    const server = createDomainServer(options.principal, options.handlers, telemetry, res.locals.traceId);
     const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
     res.on('close', () => { void server.close().catch(() => {}); });
     try {

@@ -1,5 +1,9 @@
 # Hosted coordination MCP
 
+The later LangSmith-enabled deployment is recorded in
+[MCP_OBSERVABILITY.md](MCP_OBSERVABILITY.md), including its current Worker
+version and verified traces. The original hosting evidence below is retained.
+
 Verified September 26, 2026 for [issue #3](https://github.com/Simardeep27/ContextPlane/issues/3).
 
 Endpoint: **https://context-plane-brain.buddhsen-work.workers.dev/mcp**

@@ -6,6 +6,9 @@ export class BrainContainer extends Container<Env> {
   sleepAfter = '10m';
   envVars = {
     HOST: '0.0.0.0', PORT: '8010', NODE_ENV: 'production',
+    LANGSMITH_API_KEY: this.env.LANGSMITH_API_KEY,
+    LANGSMITH_PROJECT: this.env.LANGSMITH_PROJECT,
+    LANGSMITH_TRACING: this.env.LANGSMITH_TRACING,
     MONGODB_URI: this.env.MONGODB_URI,
     MONGODB_DATABASE: this.env.MONGODB_DATABASE,
     CONTEXT_PLANE_API_TOKEN: this.env.CONTEXT_PLANE_API_TOKEN,

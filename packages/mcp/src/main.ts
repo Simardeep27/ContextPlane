@@ -1,3 +1,4 @@
+import { telemetryFromEnvironment } from './telemetry.js';
 import type { ProjectScope } from '@context-plane/contracts';
 import { connectStorage, DurablePersistenceAdapter } from '@context-plane/persistence';
 import { createApp } from './app.js';
@@ -31,7 +32,8 @@ async function main() {
     })().catch(error => { coordination = undefined; throw error; });
     return coordination;
   };
-  const app = createApp({ token, principal: { scope, coordinationScope,
+  const telemetry = telemetryFromEnvironment();
+  const app = createApp({ telemetry, token, principal: { scope, coordinationScope,
     identity: 'shared-project-coordinator', allowedTools: implementedTools },
     handlers: { ...readHandlers(async () => {
       repository ??= new DurablePersistenceAdapter((await connection()).storage);
@@ -49,7 +51,7 @@ async function main() {
   });
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
     listener.close(() => {
-      void (pending ? pending.then(value => value.close()).catch(() => {}) : Promise.resolve()).finally(() => process.exit(0));
+      void Promise.all([telemetry.flush(), pending ? pending.then(value => value.close()).catch(() => {}) : Promise.resolve()]).finally(() => process.exit(0));
     });
     setTimeout(() => process.exit(0), 5_000).unref();
   });

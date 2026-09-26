@@ -1,6 +1,11 @@
 # MCP integration status — 2026-09-26
 
-Current hosted deployment: source `73a9106`, Worker version
+LangSmith tracing is deployed from `5eeb54d`, Worker version
+`ec81b9ac-bf74-4c62-84d3-51374fd23d3f`. Exact live request/tool success and error
+traces were read back from LangSmith. The expanded MCP suite has 27 passing tests
+and one opt-in Atlas skip. See [observability evidence](../../docs/MCP_OBSERVABILITY.md).
+
+Initial nine-tool hosting deployment: source `73a9106`, Worker version
 `bdff3753-2963-41a7-a50e-b67787c35c7d`. Authenticated discovery exposes all nine
 tools against the existing team scope. Existing teammate surfaces and our own
 publication/readback are verified; independent teammate message acceptance is
