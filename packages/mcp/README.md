@@ -86,7 +86,7 @@ npm start -w @context-plane/mcp
 ```
 
 The smoke client needs the same injected token. It checks readiness, exactly the
-twelve tools (including brain `remember`/`recall` and `read_ledger`, see docs/COMPANY_BRAIN.md), product reads, coordination scope rejection, and two HTTP connections:
+thirteen tools (including brain `remember`/`recall`, `read_ledger`, and the read-only `check_overlap` duplicate-work check; optional `VOYAGE_API_KEY` enables vector search, see docs/AGENT_SYNC_CONTRACT.md), product reads, coordination scope rejection, and two HTTP connections:
 
 ```sh
 CONTEXT_PLANE_MCP_URL=http://127.0.0.1:8010/mcp \
