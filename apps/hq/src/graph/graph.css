@@ -87,3 +87,8 @@ body{margin:0;background:var(--g-bg)}
 @media(max-width:780px){.trace{overflow-x:auto}.trace-head,.trace-row{min-width:900px}}
 .graph-brand{font-size:15px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+.impact-pick { display: inline-flex; gap: 6px; align-items: center; margin-left: 12px; }
+.impact-pick select { font: inherit; max-width: 220px; }
+.impact-summary { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; }
+.impact-hops { margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 11px; white-space: nowrap;
+  background: color-mix(in srgb, #d9480f 18%, transparent); color: #d9480f; border: 1px solid color-mix(in srgb, #d9480f 45%, transparent); }
