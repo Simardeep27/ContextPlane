@@ -23,8 +23,8 @@ is caller-selected: any token holder can act as any identity in that project,
 including leasing its inbox. Agent registration does not authenticate ownership.
 Do not distribute this token across trust boundaries. Server configuration fixes
 organization, project, and coordination scope; callers cannot override them.
-Worker defaults are `org_demo` / `project_context_plane`, coordination scope
-`project:context-plane`, database `context_plane_poc`.
+Worker defaults are `org_synthetic_demo` / `project_mvp_02`, coordination scope
+`project:context-plane`, database `context_plane`.
 
 No fixtures are inserted at startup. Coordination writes do not execute or
 authorize the gateway's check/apply commands or update its event ledger. The API
@@ -114,7 +114,7 @@ transport callback types; other strict TypeScript checks remain enabled.
 `BrainContainer`, binding `BRAIN`, migration `v1`, and named instance `iteration-0`.
 There is one lite container; it sleeps after ten minutes. Secrets `MONGODB_URI`
 and `CONTEXT_PLANE_API_TOKEN` already exist on the worker and are forwarded at
-runtime. The unused existing LangSmith secret is retained but not forwarded.
+runtime. The existing LangSmith secret is forwarded to the container for metadata-only tracing.
 The image allowlist excludes env files and neighboring source.
 
 ```sh
@@ -141,3 +141,34 @@ References: [Cloudflare Containers](https://developers.cloudflare.com/containers
 [runtime secrets](https://developers.cloudflare.com/containers/examples/env-vars-and-secrets/),
 [MCP TypeScript SDK](https://ts.sdk.modelcontextprotocol.io/server), and
 [Codex MCP configuration](https://developers.openai.com/codex/mcp/).
+
+## LangSmith visibility
+
+[Open the dashboard and verified deployment record](../../docs/MCP_OBSERVABILITY.md).
+Authenticated `/readyz` includes tracing enablement, pending/succeeded/failed/dropped
+export counters and the last safe HTTP error status. Counters reset on restart.
+
+The hosted container exports completed MCP request and tool spans to the
+`context-plane-mcp` LangSmith project. Enable with `LANGSMITH_TRACING=true`,
+`LANGSMITH_PROJECT=context-plane-mcp`, and the provider-managed
+`LANGSMITH_API_KEY`. The current exporter targets the US LangSmith API.
+
+Request traces cover initialization, discovery, calls, and authenticated readiness.
+Tool children record the fixed tool name, duration, outcome, sanitized error code,
+server-side project scope, and a declared agent label (known team names or a hash).
+The response header `X-Context-Plane-Trace-Id` identifies the request trace. A tool
+error can accompany HTTP 200; inspect its child span for the domain error code.
+No raw arguments, results, message bodies, headers, tokens, or connection strings
+are exported. Agent labels are caller-declared, not authentication evidence.
+
+Exports run in the background with a 3-second timeout, no retries, and at most
+32 pending exports. Failures log `langsmith_export_failed`; capacity drops log
+`langsmith_trace_dropped`. Neither makes an MCP operation fail. Shutdown drains
+pending exports within the existing five-second process grace period. This is
+best-effort observability, not an authoritative ledger; hard crashes or provider
+outages can lose traces. Cloudflare edge rejections occur before the container
+and are visible in Cloudflare observability, not these LangSmith traces.
+
+Filter runs by `mcp.tool.get_context`, `mcp.tool.publish_surface`, or
+`mcp.request.tools/list`; inspect error spans to diagnose failed calls.
+[LangSmith instrumentation reference](https://docs.langchain.com/langsmith/trace-with-api).

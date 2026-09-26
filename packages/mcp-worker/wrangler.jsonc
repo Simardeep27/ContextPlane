@@ -8,6 +8,8 @@
   "workers_dev": true,
   "observability": { "enabled": true, "head_sampling_rate": 1 },
   "vars": {
+    "LANGSMITH_PROJECT": "context-plane-mcp",
+    "LANGSMITH_TRACING": "true",
     "MONGODB_DATABASE": "context_plane",
     "CONTEXT_PLANE_ORG_ID": "org_synthetic_demo",
     "CONTEXT_PLANE_PROJECT_ID": "project_mvp_02",
@@ -22,5 +24,5 @@
   }],
   "durable_objects": { "bindings": [{ "name": "BRAIN", "class_name": "BrainContainer" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BrainContainer"] }],
-  "secrets": { "required": ["MONGODB_URI", "CONTEXT_PLANE_API_TOKEN"] }
+  "secrets": { "required": ["MONGODB_URI", "CONTEXT_PLANE_API_TOKEN", "LANGSMITH_API_KEY"] }
 }
