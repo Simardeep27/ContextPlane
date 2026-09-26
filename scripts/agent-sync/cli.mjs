@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Outbox, privateDir, recoverLocks } from './outbox.mjs';
-import { configuration, observation } from './claude.mjs';
+import { configuration, hookEnvironment, observation } from './claude.mjs';
 export function rootFor(repo) {
   if (!repo || !path.isAbsolute(repo)) throw Error('REPOSITORY_REQUIRED');
   const artifacts = path.join(repo, '.artifacts');
@@ -24,9 +24,13 @@ export async function deliver(box) {
   try { const { connect } = await import('./transport.mjs'); remote = await connect(); return await box.flush(remote.call); }
   finally { await remote?.close().catch(() => {}); }
 }
+export function repoFor(env, cwd = process.cwd()) {
+  const repo = env.CP_SYNC_REPO || env.CLAUDE_PROJECT_DIR || cwd;
+  try { return fs.realpathSync(repo); } catch { return repo; }
+}
 async function main() {
-  const root = rootFor(process.env.CP_SYNC_REPO);
   const mode = process.argv[2];
+  const repo = repoFor(process.env);
   if (mode === 'hook') {
     let raw = ''; let tooLarge = false;
     for await (const chunk of process.stdin) {
@@ -34,13 +38,18 @@ async function main() {
       if (!tooLarge) raw += chunk;
     }
     if (tooLarge) throw Error('HOOK_INPUT_TOO_LARGE');
+    // Project-settings hooks (`hook --project`) defer to the launcher's own hooks when it is active.
+    if (process.argv[3] === '--project' && process.env.CP_SYNC_INSTANCE) return;
     const input = JSON.parse(raw); const observed = observation(input);
     if (!observed) return;
-    const box = new Outbox(root, configuration(process.env, input.session_id));
+    const env = hookEnvironment(process.env, input, repo);
+    if (!env) return; // No token or identity: reporting is off, never disturb the session.
+    const box = new Outbox(rootFor(repo), configuration(env, input.session_id));
     await box.enqueue(observed); // Persist before any attempted network operation.
     const receipt = await deliver(box);
     console.log(JSON.stringify({ systemMessage: `ContextPlane transport: ${receipt.delivered} reports stored, ${receipt.pending} pending. Task outcome not verified.` }));
   } else if (mode === 'flush' || mode === 'recover' || mode === 'status') {
+    const root = rootFor(repo);
     if (mode === 'recover') recoverLocks(root);
     for (const box of boxes(root)) {
       if (mode === 'recover') recoverLocks(box.dir);
@@ -54,8 +63,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     // Never echo SDK errors, hook input, environment, URLs or raw server responses.
     const safe = new Set(['OUTBOX_FULL', 'OUTBOX_BUSY_OR_INTERRUPTED', 'SURFACE_WRITER_CONFLICT', 'SURFACE_READBACK_FAILED',
       'HOOK_INPUT_TOO_LARGE', 'LOCK_OWNER_ALIVE', 'LOCK_OWNER_UNKNOWN', 'INVALID_TASK_REFERENCE', 'INVALID_IDENTITY',
-      'INVALID_PERSON', 'INVALID_INSTANCE', 'INVALID_SESSION', 'UNSAFE_OUTBOX', 'REPOSITORY_REQUIRED']);
+      'INVALID_PERSON', 'INVALID_INSTANCE', 'INVALID_SESSION', 'UNSAFE_OUTBOX', 'REPOSITORY_REQUIRED', 'MCP_UNAVAILABLE',
+      'MISSING_TOKEN', 'INVALID_RECIPIENT']);
     console.error(`ContextPlane UNSYNCHRONIZED: ${safe.has(error.message) ? error.message : 'CAPTURE_OR_DELIVERY_FAILED'}. Inspect status; recover interrupted locks with all clients stopped, then flush. No verified task outcome claimed.`);
-    process.exitCode = 1;
+    // A hook must never fail the user's session: report on stderr, exit 0.
+    process.exitCode = process.argv[2] === 'hook' ? 0 : 1;
   });
 }

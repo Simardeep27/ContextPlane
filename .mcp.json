@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "context_plane": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "scripts/team-context-plane-headers.mjs",
+        "--stdio"
+      ]
+    }
+  }
+}
