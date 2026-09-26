@@ -13,6 +13,16 @@ Routes:
 - `GET /v1/projects/:projectId/context`
 - `GET /v1/projects/:projectId/projection`
 - `GET /v1/projects/:projectId/events?after=000000`
+- `POST /harness-optimize` accepts `{ "prompt": "...", "optimizationLevel": "low|medium|high" }` and returns a structured optimized prompt for the existing Orders/Billing scenario. High optimization narrows the Orders tool set and returns focused tool descriptions. The endpoint reports its completed processing level and does not call a model.
+
+Example request (include the existing demo session header):
+
+```json
+{
+  "prompt": "Change the Orders API to return monetary values in dollars.",
+  "optimizationLevel": "high"
+}
+```
 
 Run local tests from the repository root with `npm test`. The normal suite uses
 `MemoryStorage`. The opt-in Atlas recovery test creates and removes only an
