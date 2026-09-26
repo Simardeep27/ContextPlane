@@ -1,10 +1,12 @@
 // Local verification of the same handler deployed as a Vercel Function. No simulation or API startup.
 import { createServer } from 'node:http';
 import { createTeamHandler } from './team.ts';
-const handle = createTeamHandler(process.env);
+import { createOptimizeHandler } from './optimize.ts';
+const team = createTeamHandler(process.env); const optimize = createOptimizeHandler();
 const port = Number(process.env.PORT ?? 8788);
 createServer(async (req,res) => {
-  if (req.url?.split('?')[0] !== '/api/team') { res.writeHead(404).end(); return; }
+  const route = req.url?.split('?')[0]; const handle = route === '/api/team' ? team : route === '/api/optimize' ? optimize : null;
+  if (!handle) { res.writeHead(404).end(); return; }
   const headers = new Headers();
   for (const [k,v] of Object.entries(req.headers)) if (v) headers.set(k,Array.isArray(v) ? v.join(',') : v);
   try {

@@ -10,7 +10,9 @@ page remains at `/index.html` with its original local runtime commands.
 Import this ContextPlane repository and choose **Root Directory `apps/hq`**.
 Enable inclusion of source files outside that directory (workspace dependencies).
 Use Node 24, the Vite framework, the committed build command, and output `dist`.
-The Vercel function is `api/team.ts`; `/` rewrites to `team.html`.
+The Vercel functions are `api/team.ts` (team read) and `api/optimize.ts` (harness
+prompt optimizer; imports `apps/api/src/harness-optimize.ts` directly, so no local
+:3001 API is needed). `/` rewrites to `team.html`.
 Deploy a preview from the reviewed commit before promoting it.
 When deploying from the repository root with the CLI, pass
 `--local-config apps/hq/vercel.json` so the team-page rewrite is applied.
@@ -21,22 +23,20 @@ so Vercel's emitted JavaScript resolves at runtime.
 Set these **server-side** variables for the intended deployment environment:
 
 - `CONTEXT_PLANE_API_TOKEN`: existing hosted MCP project token, supplied privately.
-- `HQ_VIEW_PASSWORD`: a separate random viewer password of at least 24 characters.
-  Never reuse the MCP token. Supply it through provider secret UI / hidden terminal
-  prompt, and share it with the four teammates privately. Rotate to revoke sessions.
+- `HQ_VIEW_PASSWORD` is **no longer used**. The viewer password/cookie gate was removed
+  for the demo; the team page and `/api/team` are open read-only. Delete the variable
+  from the Vercel project if it is still set.
 
 Never prefix secrets with `VITE_`, commit `.env`, paste secrets into chat/issues,
 or invoke header helpers where their output will be logged. No Atlas URI is needed.
 The MCP endpoint, reader identity (`shivraj:ui`) and scope are fixed server-side.
 The reader registration must already exist; the UI never registers or writes agents.
 
-Enable Vercel Authentication for the preview. Confirm the chosen protection also
-covers the final domain before promoting. The application additionally denies all
-team reads without its signed, HttpOnly, SameSite=Strict viewer cookie; it fails
-closed if either secret is missing. Sessions expire after eight hours. HTTPS uses
-Secure cookies. The static shell contains no team state. This is shared-team access,
-not per-person authorization. Apply Vercel Firewall rate limiting to the sign-in
-route if exposed beyond this small trusted team; do not purchase a plan automatically.
+Access: the team view is open and read-only (no login). The MCP token stays
+server-side; `/api/team` returns only the allowlisted projection (no raw message
+bodies, tokens or URIs) and rejects cross-origin and non-GET requests. Enable
+Vercel Authentication if the deployment must not be public. The "Office of the
+CTO" tab renders a bundled SAMPLE DATA fixture, labelled on screen, never live data.
 
 ## Verification
 
@@ -52,13 +52,13 @@ npm run build -w @context-plane/hq
 For local team-only verification, supply the same variables securely to
 `npm run dev:team:server -w @context-plane/hq` (port 8788), then run
 `PORT=8788 npm run dev:web -w @context-plane/hq` and open `/team.html`.
-The Vite proxy preserves the browser Host for same-origin cookie/login checks.
+The dev server also serves `/api/optimize`; the Vite proxy preserves the browser Host.
 Neither command starts the migration API or simulation.
 
-Before claiming deployment complete, verify unauthorized `/api/team` returns 401,
-sign-in works, all four people and distinct identities display, refresh observes
-another actual client's report, and an MCP failure is visible. Test mobile and
-sign-out. Inspect built JS and responses for credentials without printing them.
+Before claiming deployment complete, verify `/api/team` works without a cookie,
+`/api/optimize` returns an optimized prompt, all four people and distinct identities display, refresh observes
+another actual client's report, and an MCP failure is visible. Test 1440/1280 widths and
+mobile. Inspect built JS and responses for credentials without printing them.
 Record the commit, URL, exact checks and any incomplete acceptance in the PR.
 
 The UI polls every five seconds while visible. Overlapping requests are skipped;

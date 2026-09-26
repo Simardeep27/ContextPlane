@@ -86,7 +86,10 @@ export class Outbox {
       if (state.seen.includes(eventId)) return eventId;
       const sequence = ++state.sequence; const occurredAt = new Date().toISOString();
       const stale = state.terminal && observation.kind !== 'SessionStart';
-      const status = observation.kind === 'SessionEnd' || observation.kind === 'Stop' ? 'stopped'
+      // A per-turn Stop means the agent is idle/waiting for input, never finished. Only an
+      // explicit work_finished report or SessionEnd marks the session finished.
+      const waiting = observation.kind === 'Stop';
+      const status = observation.kind === 'SessionEnd' ? 'stopped' : waiting ? 'idle'
         : observation.kind === 'PostToolUseFailure' ? 'blocked' : 'working';
       if (observation.kind === 'SessionStart') state.terminal = false;
       if (observation.kind === 'SessionEnd') state.terminal = true;
@@ -94,11 +97,11 @@ export class Outbox {
         observation.kind === 'PostToolUseFailure' ? 'blocked' : status === 'stopped' ? 'work_finished' : 'progress',
         actor: this.config.identity, instanceId: this.config.instanceId, sessionId: this.config.sessionId,
         task: this.config.task, sequence, occurredAt, evidenceKind: 'client_observation',
-        summary: observation.summary, outcomeVerified: false, stale };
+        summary: observation.summary, outcomeVerified: false, stale, ...(waiting ? { waiting: true } : {}) };
       const content = { person: this.config.person, instanceId: this.config.instanceId, sessionId: this.config.sessionId,
         task: this.config.task, currentTask: observation.summary, status, sequence, files: [], completed: [],
         blockedOn: status === 'blocked' ? ['Client reported tool failure; outcome not inspected'] : [],
-        nextAction: status === 'working' ? 'Continue authorized work' : 'Review client outcome before claiming completion',
+        nextAction: status === 'working' ? 'Continue authorized work' : status === 'idle' ? 'Waiting for the next prompt' : 'Review client outcome before claiming completion',
         lastEventId: eventId, updatedAt: occurredAt, evidence: [], outcomeVerified: false };
       state.pending.push({ eventId, message: { identity: this.config.identity, scope: this.config.scope,
         recipient: this.config.recipient, message_id: eventId, body: JSON.stringify(event), evidence_ids: [] },
