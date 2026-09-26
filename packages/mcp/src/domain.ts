@@ -1,3 +1,4 @@
+import { agentLabel, noTelemetry, traceId, type Telemetry } from './telemetry.js';
 import { Ajv } from 'ajv';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -161,7 +162,7 @@ const schemas = new Map([...definitions].map(([name, definition]) => [name, vali
 function errorResult(code: string): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: code }] };
 }
-export function createDomainServer(principal: Principal, handlers: DomainHandlers): Server {
+export function createDomainServer(principal: Principal, handlers: DomainHandlers, telemetry: Telemetry = noTelemetry, parentId?: string): Server {
   const identity = structuredClone(principal);
   const available = identity.allowedTools.filter(name => handlers[name] !== undefined);
   const server = new Server({ name: 'context-plane', version: '1.0.0' }, { capabilities: { tools: {} },
@@ -171,7 +172,7 @@ export function createDomainServer(principal: Principal, handlers: DomainHandler
     annotations: { readOnlyHint: handlers[name]!.readOnly, destructiveHint: !handlers[name]!.readOnly,
       idempotentHint: handlers[name]!.readOnly, openWorldHint: false },
   })) }));
-  server.setRequestHandler(CallToolRequestSchema, async request => {
+  const executeTool = async (request: { params: { name: string; arguments?: Record<string, unknown> } }): Promise<CallToolResult> => {
     const name = request.params.name as ImplementedToolName;
     if (!available.includes(name)) return errorResult('TOOL_UNAVAILABLE');
     const args = request.params.arguments ?? {};
@@ -185,6 +186,21 @@ export function createDomainServer(principal: Principal, handlers: DomainHandler
       return errorResult(error instanceof PersistenceError || error instanceof CoordinationError
         ? error.code : 'SERVICE_UNAVAILABLE');
     }
+  };
+  server.setRequestHandler(CallToolRequestSchema, async request => {
+    const startedAt = Date.now();
+    const result = await executeTool(request);
+    const known = available.includes(request.params.name as ImplementedToolName);
+    const first = result.content[0];
+    telemetry.record({ id: traceId(), name: `mcp.tool.${known ? request.params.name : 'unavailable'}`,
+      kind: 'tool', startedAt, endedAt: Date.now(), parentId,
+      ...(result.isError ? { error: first?.type === 'text' ? first.text : 'TOOL_ERROR' } : {}),
+      metadata: { orgId: identity.scope.orgId, projectId: identity.scope.projectId,
+        coordinationScope: identity.coordinationScope,
+        declaredAgent: agentLabel(request.params.arguments?.identity),
+        outcome: result.isError ? 'error' : 'success' },
+    });
+    return result;
   });
   return server;
 }
