@@ -17,7 +17,7 @@ test('evaluator persists derived episodes and reuses unchanged input without ano
   assert.equal(name,'remember');assert.equal(args.kind,'episode');
   const entry={entryId:args.entry_id,body:args.body,author:'company:evaluator',createdAt:'2026-01-01T00:00:00Z'};entries.push(entry);return entry;
  };
- const fetcher=(async(_url,init)=>{completions++;const body=JSON.parse(String(init?.body));assert.equal(body.model,'deepseek/deepseek-v4.1-flash');assert.ok(!JSON.stringify(body).includes(env.OPENROUTER_API_KEY));return Response.json({choices:[{message:{content:'Check stale reports before assigning work.'}}]});}) as typeof fetch;
+ const fetcher=(async(_url,init)=>{completions++;const body=JSON.parse(String(init?.body));assert.equal(body.model,'deepseek/deepseek-v4.1-flash');assert.deepEqual(body.reasoning,{enabled:false});assert.ok(!JSON.stringify(body).includes(env.OPENROUTER_API_KEY));return Response.json({choices:[{message:{content:'Check stale reports before assigning work.'}}]});}) as typeof fetch;
  const handler=createEvaluatorHandler(env,fetcher,reader,call);
  const first=await handler(req());assert.equal(first.status,200);assert.equal((await first.json()).cached,false);
  const second=await handler(req());assert.equal((await second.json()).cached,true);assert.equal(completions,1);assert.equal(entries.length,1);
