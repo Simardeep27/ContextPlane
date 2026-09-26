@@ -52,7 +52,7 @@ export function createApp(options: AppOptions) {
       await options.ready();
       res.json({ atlas: 'ready', service: 'context-plane',
         mode: availableTools.includes('register_agent') ? 'shared-project-coordination' : 'shared-project-read-only',
-        tools: availableTools });
+        tools: availableTools, ...(options.telemetry ? { tracing: telemetry.status() } : {}) });
     } catch { res.status(503).json({ atlas: 'unavailable', code: 'STORAGE_UNAVAILABLE' }); }
   });
   app.post('/mcp', async (req, res) => {

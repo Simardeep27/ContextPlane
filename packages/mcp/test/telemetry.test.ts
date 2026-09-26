@@ -22,6 +22,8 @@ test('exports completed metadata-only traces and contains provider errors', asyn
   assert.deepEqual(exported[0]?.outputs,{status:'success'});
   assert.equal(exported[0]?.extra?.metadata?.duration_ms,10);
   assert.equal(logs[0]?.event,'langsmith_export_failed');
+  assert.equal(telemetry.status().failed,1);
+  assert.equal(telemetry.status().pending,0);
   assert.ok(!JSON.stringify(logs).includes('secret provider response'));
 });
 

@@ -14,8 +14,9 @@ export interface TraceRecord {
 export interface Telemetry {
   record(trace: TraceRecord): void;
   flush(): Promise<void>;
+  status(): Record<string, unknown>;
 }
-export const noTelemetry: Telemetry = { record() {}, async flush() {} };
+export const noTelemetry: Telemetry = { record() {}, async flush() {}, status: () => ({ enabled: false }) };
 export const traceId = () => randomUUID();
 
 /** Declared names are labels, not authenticated person identities. */
@@ -32,10 +33,13 @@ export function createTelemetry(options: {
   maxPending?: number;
 }): Telemetry {
   const pending = new Set<Promise<void>>();
+  let succeeded = 0, failed = 0, dropped = 0;
+  let lastErrorStatus: number | null = null;
   const log = options.log ?? (entry => console.error(JSON.stringify(entry)));
   return {
     record(trace) {
       if (pending.size >= (options.maxPending ?? 32)) {
+        dropped++;
         log({ event: 'langsmith_trace_dropped', reason: 'capacity', traceId: trace.id });
         return;
       }
@@ -52,11 +56,17 @@ export function createTelemetry(options: {
         tags: ['context-plane', 'mcp', 'metadata-only'],
       };
       const task = Promise.resolve().then(() => options.client.createRun(payload))
-        .then(() => {}, () => { log({ event: 'langsmith_export_failed', traceId: trace.id }); })
+        .then(() => { succeeded++; }, (error: unknown) => {
+          failed++;
+          lastErrorStatus = typeof error === 'object' && error !== null && 'status' in error &&
+            typeof error.status === 'number' ? error.status : null;
+          log({ event: 'langsmith_export_failed', traceId: trace.id, status: lastErrorStatus });
+        })
         .finally(() => { pending.delete(task); });
       pending.add(task);
     },
     async flush() { await Promise.all([...pending]); },
+    status: () => ({ enabled: true, project: options.project, pending: pending.size, succeeded, failed, dropped, lastErrorStatus }),
   };
 }
 
