@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { Diagram } from './Diagram.tsx';
 import { Results } from './Results.tsx';
 import { Loop } from './Loop.tsx';
+import { BrandMark } from '../ui/BrandMark.tsx';
+import { AppNav } from '../ui/AppNav.tsx';
 import './architecture.css';
 
 const tabs = [
@@ -19,7 +21,8 @@ function App() {
   const pick = (t: Tab) => { setTab(t); history.replaceState(null, '', `#${t}`); };
   return <div className="arch-shell">
     <header className="arch-mast">
-      <a className="arch-brand" href="team.html"><span className="arch-icon" aria-hidden="true">◆</span>Company Harness <span>Architecture</span></a>
+      <a className="arch-brand" href="/"><BrandMark size={28}/>Company Harness <span>/ Architecture</span></a>
+      <AppNav current="/architecture.html" className="app-nav arch-nav"/>
       <nav className="arch-tabs" role="tablist" aria-label="Sections">
         {tabs.map((t) => <button key={t.id} role="tab" id={`tab-${t.id}`} aria-controls={`panel-${t.id}`} aria-selected={tab === t.id} onClick={() => pick(t.id)}>{t.label}</button>)}
       </nav>
