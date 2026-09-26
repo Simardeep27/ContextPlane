@@ -144,6 +144,10 @@ References: [Cloudflare Containers](https://developers.cloudflare.com/containers
 
 ## LangSmith visibility
 
+[Open the dashboard and verified deployment record](../../docs/MCP_OBSERVABILITY.md).
+Authenticated `/readyz` includes tracing enablement, pending/succeeded/failed/dropped
+export counters and the last safe HTTP error status. Counters reset on restart.
+
 The hosted container exports completed MCP request and tool spans to the
 `context-plane-mcp` LangSmith project. Enable with `LANGSMITH_TRACING=true`,
 `LANGSMITH_PROJECT=context-plane-mcp`, and the provider-managed
