@@ -1,6 +1,6 @@
 // Live-team presentation helpers for the 3D HQ: layout, status colors, and a
 // deterministic command-center answer over the allowlisted /api/team projection.
-import type { AgentView, ChipStatus } from './harness.ts';
+import type { AgentView, ChipStatus, OptimizerReport } from './harness.ts';
 import { people } from './team.ts';
 
 export type Vec3 = readonly [number, number, number];
@@ -94,4 +94,73 @@ export function answerLive(question: string, views: readonly AgentView[]): LiveA
   if (/idle|quiet|free|availab/.test(q)) return { heading: 'Idle agents', lines: pick('idle'), empty: 'No idle agents.' };
   if (/working on|active|busy|progress/.test(q) && !/everyone|every one|all|team/.test(q)) return { heading: 'Working now', lines: pick('working'), empty: 'No agent is actively working.' };
   return { heading: 'Everyone', lines: pick(null), empty: 'No agents have reported work-status yet.' };
+}
+
+// ---------- Company agent (harness optimizer) presentation ----------
+
+/** How often the company agent's "thinking" line advances. */
+export const INSIGHT_PERIOD_MS = 4000;
+
+type InsightReport = Pick<OptimizerReport, 'suggestion' | 'collisions' | 'idleAgents' | 'active' | 'blocked' | 'finished' | 'eventsLastHour'>;
+
+/** Every deterministic optimizer insight, most urgent first, without duplicates. */
+export function companyInsights(report: InsightReport | null, views: readonly AgentView[]): string[] {
+  if (!report) return ['Waiting for the first team report'];
+  const out = [report.suggestion];
+  for (const c of report.collisions) out.push(`${c.a} and ${c.b} both touch ${c.subject}`);
+  for (const v of views) if (v.status === 'blocked') out.push(`${v.identity} is blocked${v.summary ? `: ${v.summary}` : ''}`);
+  for (const v of report.idleAgents) out.push(`${v.identity} has been quiet ${v.idleMinutes === null ? '(no report time)' : `${v.idleMinutes}m`}`);
+  out.push(`${report.finished} finished · ${report.active} active · ${report.eventsLastHour} ${report.eventsLastHour === 1 ? 'event' : 'events'} in the last hour`);
+  return [...new Set(out)];
+}
+
+/** Index of the insight shown after `elapsedMs`; cycles every `periodMs`. */
+export function insightIndex(count: number, elapsedMs: number, periodMs = INSIGHT_PERIOD_MS): number {
+  if (count <= 0 || !Number.isFinite(elapsedMs)) return 0;
+  return Math.floor(Math.max(0, elapsedMs) / periodMs) % count;
+}
+
+export type CompanyStatus = { label: string; tone: 'waiting' | 'attention' | 'ok' | 'quiet' };
+/** Status chip for the company agent. */
+export function companyStatus(report: InsightReport | null): CompanyStatus {
+  if (!report) return { label: 'Waiting for data', tone: 'waiting' };
+  if (report.collisions.length) return { label: `${report.collisions.length} ${report.collisions.length === 1 ? 'collision' : 'collisions'}`, tone: 'attention' };
+  if (report.blocked) return { label: `${report.blocked} blocked`, tone: 'attention' };
+  if (report.active) return { label: `Optimizing · ${report.active} active`, tone: 'ok' };
+  return { label: 'Team quiet', tone: 'quiet' };
+}
+
+/** Pad subtitle, e.g. "3 agents · 2 working · 1 blocked". */
+export function padSummary(agents: readonly Pick<AgentView, 'status'>[]): string {
+  if (agents.length === 0) return 'no agents reporting';
+  const working = agents.filter(a => a.status === 'working').length;
+  const blocked = agents.filter(a => a.status === 'blocked').length;
+  const parts = [`${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`];
+  if (working) parts.push(`${working} working`);
+  if (blocked) parts.push(`${blocked} blocked`);
+  if (!working && !blocked) parts.push('none active');
+  return parts.join(' · ');
+}
+
+// ---------- Command-center panel ----------
+
+export type PanelState = 'collapsed' | 'open' | 'max';
+export const PANEL_STORAGE_KEY = 'company-harness.hq.panel';
+export const PANEL_COLLAPSE_BELOW = 1360;
+export const PANEL_WIDTH = 380;
+
+/** Stored choice wins; otherwise collapsed on narrow laptops. */
+export function initialPanelState(stored: string | null, viewportWidth: number): PanelState {
+  if (stored === 'collapsed' || stored === 'open' || stored === 'max') return stored;
+  return viewportWidth < PANEL_COLLAPSE_BELOW ? 'collapsed' : 'open';
+}
+
+/**
+ * World-space x shift of the camera target so the scene centres in the space the
+ * open left panel leaves free. `visibleWorldWidth` approximates the ground width in view.
+ */
+export function sceneShift(viewportWidth: number, panel: PanelState, panelPx = PANEL_WIDTH + 16, visibleWorldWidth = 24): number {
+  if (panel === 'collapsed' || viewportWidth <= 960) return 0;
+  const pxPerUnit = viewportWidth / visibleWorldWidth;
+  return round(Math.min(4.5, panelPx / 2 / pxPerUnit));
 }

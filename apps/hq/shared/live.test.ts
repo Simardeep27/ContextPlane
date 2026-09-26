@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { AgentView, ChipStatus } from './harness.ts';
-import { answerLive, layoutTeam, legendState, liveHeader, newReports, padCenters, padRadius, ringOffsets, ROBOT_SPACING } from './live.ts';
+import { answerLive, companyInsights, companyStatus, initialPanelState, INSIGHT_PERIOD_MS, insightIndex, layoutTeam, legendState, liveHeader, newReports, padCenters, padRadius, padSummary, ringOffsets, ROBOT_SPACING, sceneShift } from './live.ts';
 
 const view = (identity: string, person: string, status: ChipStatus = 'working', updatedAt: string | null = '2026-09-26T20:00:00.000Z', summary: string | null = null): AgentView =>
   ({ identity, suffix: identity.split(':')[1] ?? identity, person, status, task: null, summary, files: [], updatedAt, lastEventType: null, idleMinutes: 0 });
@@ -59,4 +59,65 @@ test('header, new-report detection and deterministic answers', () => {
   assert.deepEqual(answerLive('What has finished?', team).lines.map(l => l.identity), ['b:x']);
   assert.deepEqual(answerLive('Who is idle?', team).lines, []);
   assert.equal(answerLive('Who is blocked?', []).empty, 'Nobody is blocked right now.');
+});
+
+const report = (over: Partial<Parameters<typeof companyInsights>[0] & object> = {}) => ({
+  suggestion: 'shivraj:deploy has been quiet 44m — check in or send work_finished', collisions: [], idleAgents: [],
+  active: 2, blocked: 0, finished: 3, eventsLastHour: 7, ...over });
+
+test('company insights list the suggestion, collisions, blocked, idle and finished counts', () => {
+  assert.deepEqual(companyInsights(null, []), ['Waiting for the first team report']);
+  const idle = { ...view('shivraj:deploy', 'Shivraj', 'idle'), idleMinutes: 44 };
+  const blocked = view('simar:api', 'Simar', 'blocked', undefined, 'waiting on keys');
+  const lines = companyInsights(report({ collisions: [{ a: 'a:x', b: 'b:y', reason: 'files', subject: 'src/app.ts' }], idleAgents: [idle], blocked: 1 }), [blocked, idle]);
+  assert.deepEqual(lines, [
+    'shivraj:deploy has been quiet 44m — check in or send work_finished',
+    'a:x and b:y both touch src/app.ts',
+    'simar:api is blocked: waiting on keys',
+    'shivraj:deploy has been quiet 44m',
+    '3 finished · 2 active · 7 events in the last hour',
+  ]);
+  const dup = companyInsights(report({ suggestion: 'shivraj:deploy has been quiet 44m', idleAgents: [idle] }), [idle]);
+  assert.equal(dup.filter(l => l === 'shivraj:deploy has been quiet 44m').length, 1);
+});
+
+test('insight rotation cycles every period and tolerates empty lists', () => {
+  assert.equal(insightIndex(0, 99_999), 0);
+  assert.equal(insightIndex(3, 0), 0);
+  assert.equal(insightIndex(3, INSIGHT_PERIOD_MS - 1), 0);
+  assert.equal(insightIndex(3, INSIGHT_PERIOD_MS), 1);
+  assert.equal(insightIndex(3, INSIGHT_PERIOD_MS * 3), 0);
+  assert.equal(insightIndex(3, -500), 0);
+  assert.equal(insightIndex(3, NaN), 0);
+});
+
+test('company status chip prioritises collisions, then blocked, then activity', () => {
+  assert.equal(companyStatus(null).tone, 'waiting');
+  assert.equal(companyStatus(report({ collisions: [{ a: 'a', b: 'b', reason: 'task', subject: 't' }] })).label, '1 collision');
+  assert.deepEqual(companyStatus(report({ blocked: 2 })), { label: '2 blocked', tone: 'attention' });
+  assert.deepEqual(companyStatus(report()), { label: 'Optimizing · 2 active', tone: 'ok' });
+  assert.deepEqual(companyStatus(report({ active: 0 })), { label: 'Team quiet', tone: 'quiet' });
+});
+
+test('pad summary names agents with working and blocked counts', () => {
+  assert.equal(padSummary([]), 'no agents reporting');
+  assert.equal(padSummary([view('a:1', 'A')]), '1 agent · 1 working');
+  assert.equal(padSummary([view('a:1', 'A'), view('a:2', 'A', 'blocked'), view('a:3', 'A', 'idle')]), '3 agents · 1 working · 1 blocked');
+  assert.equal(padSummary([view('a:1', 'A', 'finished')]), '1 agent · none active');
+});
+
+test('panel defaults to collapsed below 1360px unless a valid choice is stored', () => {
+  assert.equal(initialPanelState(null, 1280), 'collapsed');
+  assert.equal(initialPanelState(null, 1440), 'open');
+  assert.equal(initialPanelState('max', 1280), 'max');
+  assert.equal(initialPanelState('bogus', 1440), 'open');
+});
+
+test('scene shifts right only while the left panel is open on wide screens', () => {
+  assert.equal(sceneShift(1440, 'collapsed'), 0);
+  assert.equal(sceneShift(800, 'open'), 0);
+  const open = sceneShift(1440, 'open');
+  assert.ok(open > 2 && open < 4.5, `shift ${open}`);
+  assert.ok(sceneShift(1280, 'open') > open, 'narrower screens need a larger world shift');
+  assert.ok(sceneShift(1000, 'max', 2000) <= 4.5);
 });

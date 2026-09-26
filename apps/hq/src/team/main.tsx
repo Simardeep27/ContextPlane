@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { people, personOf, type TeamSnapshot } from '../../shared/team.ts';
 import { agentViews, groupByPerson, optimize, type AgentView, type OptimizerReport, type PersonResolver } from '../../shared/harness.ts';
 import { sampleOrder, samplePersonOf, sampleSnapshot, sampleTeamOf } from '../../shared/sample.ts';
+import { BrainIcon, BrandMark } from '../ui/BrandMark.tsx';
 import './team.css';
 type ViewMode = 'live' | 'sample';
 const displayName = (p: string) => p === 'Buddh' ? 'Buddhsen' : p;
@@ -64,14 +65,6 @@ function PromptOptimizer() {
     </div>}
   </section>;
 }
-function BrainIcon() {
-  // Company brain: inline SVG, deliberately not a person/agent avatar.
-  return <svg className="brain-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label="Company brain">
-    <path d="M9.5 3.5a2.5 2.5 0 0 0-2.45 2A2.75 2.75 0 0 0 4.5 8.25c0 .5.13.97.36 1.38A3 3 0 0 0 4 15.5a3 3 0 0 0 2.5 2.96A2.75 2.75 0 0 0 9.25 20.5c.97 0 1.82-.5 2.25-1.25V4.9A2.5 2.5 0 0 0 9.5 3.5Z"/>
-    <path d="M14.5 3.5a2.5 2.5 0 0 1 2.45 2 2.75 2.75 0 0 1 2.55 2.75c0 .5-.13.97-.36 1.38A3 3 0 0 1 20 15.5a3 3 0 0 1-2.5 2.96 2.75 2.75 0 0 1-2.75 2.04c-.97 0-1.82-.5-2.25-1.25V4.9a2.5 2.5 0 0 1 2-1.4Z"/>
-    <path d="M7.5 9.5c1 0 1.75.6 2 1.5M16.5 9.5c-1 0-1.75.6-2 1.5M7 14.5c1.2 0 2 .8 2.3 1.8M17 14.5c-1.2 0-2 .8-2.3 1.8"/>
-  </svg>;
-}
 function Optimizer({report}: {report:OptimizerReport}) {
   return <section className="optimizer" aria-labelledby="optimizer-title">
     <header><span className="brain-badge"><BrainIcon/><span className="pulse" aria-hidden="true"/></span><h2 id="optimizer-title">Company brain · harness optimizer</h2><small>Ledger stats are rule-based, computed from agent reports.</small></header>
@@ -129,7 +122,7 @@ function TeamApp() {
   const report=useMemo(()=>source.snap?optimize({agents:source.snap.agents,events:source.snap.events??[]},now,source.resolver):null,[source.snap,now,source.resolver]);
   const peopleCount=new Set(views.map(v=>v.person)).size;
   return <main className={`team-shell mode-${mode}`}>
-    <header className="masthead"><a href="/" className="brand"><span className="brand-icon">C</span>Company Harness <span className="brand-suffix">/ Team</span></a><nav className="app-nav"><a href="/verified.html">Verified run</a><a href="/index.html">Migration HQ</a></nav><span className="private-label">Read only</span></header>
+    <header className="masthead"><a href="/" className="brand"><BrandMark size={30}/>Company Harness <span className="brand-suffix">/ Team</span></a><nav className="app-nav"><a href="/verified.html">Verified run</a><a href="/graph.html">Dependencies</a><a href="/index.html">Live HQ</a><a href="/architecture.html">Architecture</a></nav><span className="private-label">Read only</span></header>
     <section className="intro"><div><p className="eyebrow">SHARED CONTEXT</p><h1>One team.<br/><span>A clear next move.</span></h1></div>
       <div className="view-tabs" role="tablist" aria-label="Choose view">
         <button role="tab" aria-selected={mode==='live'} onClick={()=>switchMode('live')}><span className={`source-dot ${error?'offline':''}`}/>ContextPlane team <em>live</em></button>
