@@ -2,7 +2,7 @@ import { join, isAbsolute } from 'node:path';
 import type { ProjectScope, RunId } from '@context-plane/contracts';
 import { DurablePersistenceAdapter, connectStorage } from '@context-plane/persistence';
 import { ScenarioRunner } from '@context-plane/runner';
-import { createHarness, createGatewayServer } from '@context-plane/gateway';
+import { createHarness, createGatewayServer, OpenRouterProvider, runAgent } from '@context-plane/gateway';
 import { FileStorage } from './file-storage.js';
 
 export type WorkerConfiguration = {
@@ -14,6 +14,7 @@ export type WorkerConfiguration = {
   controllerToken: string;
   crashOnCombinedPublication: boolean;
   leaseDurationMs: number;
+  model?: string;
 };
 
 process.once('message', async (configuration: WorkerConfiguration) => {
@@ -37,12 +38,28 @@ process.once('message', async (configuration: WorkerConfiguration) => {
       runId: configuration.runId,
       credentials: configuration.credentials,
       controllerToken: configuration.controllerToken,
+      heartbeatMs: Math.max(10, Math.floor(configuration.leaseDurationMs / 3)),
       crashAfterEffect: proof => {
         if (configuration.crashOnCombinedPublication && proof.snapshotId === 'combined-candidate') {
           // Real process death, after the atomic external effect and before the final DB commit.
           process.kill(process.pid, 'SIGKILL');
         }
       },
+    });
+    const provider = configuration.model ? new OpenRouterProvider({
+      apiKey: process.env.OPENROUTER_API_KEY ?? '', model: configuration.model,
+      journalDirectory: join(configuration.directory, 'inference'),
+    }) : undefined;
+    if (provider) process.on('message', async (message: { type?: string; token: string; jobKey: string; task: string; maxTurns: number }) => {
+      if (message.type !== 'agent-job') return;
+      try {
+        const result = await runAgent({ harness, provider, token: message.token,
+          jobKey: message.jobKey, task: message.task, maxTurns: message.maxTurns });
+        process.send?.({ type: 'agent-result', result });
+      } catch (error) {
+        const code = error instanceof Error && /^(?:OPENROUTER_[A-Z_0-9]+|INVALID_[A-Z_]+|INFERENCE_[A-Z_]+|LEASE_LOST|RUN_LEASED|RUN_BUDGET_EXCEEDED)$/.test(error.message) ? error.message : 'AGENT_JOB_FAILED';
+        process.send?.({ type: 'agent-error', message: code });
+      }
     });
     const server = createGatewayServer(harness);
     server.listen(0, '127.0.0.1', () => {
