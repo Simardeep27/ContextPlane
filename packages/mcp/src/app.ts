@@ -35,7 +35,7 @@ export function createApp(options: AppOptions) {
   });
   app.post('/mcp', async (req, res) => {
     const server = createDomainServer(options.principal, options.handlers);
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
     res.on('close', () => { void server.close().catch(() => {}); });
     try {
       await server.connect(transport);

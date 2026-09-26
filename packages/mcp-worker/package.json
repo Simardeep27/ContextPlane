@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "types": "wrangler types",
+    "types": "wrangler types --include-runtime=false",
     "typecheck": "tsc --noEmit",
     "deploy:check": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy --keep-vars"
