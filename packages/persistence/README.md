@@ -76,10 +76,12 @@ completed, or failed runs. There is no queue scanner or automatic resumption.
 | `renewLease(scope, lease)` | Same generation, extended expiry, or `null` for lost/expired ownership. |
 | `readCheckpoint(scope, runId)` **addition** | Retrieves progress after restart. |
 | `saveProjection(projection, expectedRevision)` **addition** | Compare-and-set on prior projection revision; rejects cursor/policy-epoch regressions. |
-| `commitStep({checkpoint, lease, event?, receipt?, projection?})` **addition** | One transaction across event, receipt, checkpoint, and optional projection. |
+| `commitStep({checkpoint, lease, event?, receipt?, projection?, records?, candidateHash?})` **addition** | One transaction across event, receipt, records, checkpoint, and optional projection. With `candidateHash`, every record naming a candidate must name that one. |
+| `saveRecord({record, expectedRevision})` | Trusted API/seed write of one domain record (compare-and-set on the record's revision). |
+| `readRecord(scope, kind, id)` / `listRecords(scope, kind)` | Scoped reads; list returns up to 100 records ordered by ID. |
 
-`ScopedLeaseToken` adds `scope` to the shared `LeaseToken`. Pass back the **entire
-returned token**. Dropping scope is rejected. The adapter also checks its private
+The shared `LeaseToken` now carries `scope` (`ScopedLeaseToken` remains as a
+deprecated alias). Pass back the **entire returned token**. Dropping scope is rejected. The adapter also checks its private
 process owner ID; stealing another adapter's token does not transfer ownership.
 These tokens are internal capabilities, not substitutes for API authorization.
 
@@ -89,6 +91,20 @@ shared interface. Grant/policy transaction entrypoints beyond projection CAS are
 deferred until caller contracts exist. `appendEvent` has no lease in the shared
 interface, so it must remain trusted API ingestion; do not expose it as a worker
 domain tool or use it for worker effects.
+
+## Domain records (MVP-01)
+
+Records are defined in `@context-plane/contracts` (`records.ts`). Persistence
+enforces only storage-level invariants; core still makes every decision.
+
+| Record | Key | Guard enforced on write |
+|---|---|---|
+| `dependency_revision` | service ID | Head advances by exactly one revision. |
+| `candidate` | candidate hash | `basedOn.candidateHash` equals the key; `basedOn.dependencyRevision` never exceeds the head (stale is allowed). |
+| `check_result` | check ID | Immutable. |
+| `publication_authorization` | candidate hash | Immutable. `authorized` requires the current dependency head, the stored projection's policy epoch, and referenced passing checks pinned to the same version tuple. |
+| `policy_candidate` | policy candidate hash | Compare-and-set only. |
+| `policy_version` | `agent@epoch` | Immutable, sequential per agent, and only with all unsafe cases caught and zero valid cases blocked. |
 
 ## Ordering, idempotency, and recovery
 
@@ -139,7 +155,7 @@ are capped at 100. Keep summaries bounded and use evidence IDs for larger data.
 
 ## Collections and indexes
 
-Only four namespaced collections are created. Existing neighboring application
+Only five namespaced collections are created. Existing neighboring application
 collections are untouched. Keys are unambiguous JSON tuples of org/project/key.
 
 | Collection | Stored data | Indexes beyond `_id` |
@@ -148,6 +164,7 @@ collections are untouched. Keys are unambiguous JSON tuples of org/project/key.
 | `cp_runs` | Owner, generation, expiry, bounded checkpoint | Unique `(orgId, projectId, key)` |
 | `cp_events` | Immutable event envelope and numeric cursor | Unique scope/key and scope/cursor |
 | `cp_receipts` | Operation receipt keyed by operation key | Unique `(orgId, projectId, key)` |
+| `cp_records` | Domain records keyed `kind:recordId` | Unique `(orgId, projectId, key)` |
 
 Events and receipts are separate documents, not ever-growing arrays. No TTL,
 vector index, graph, change stream, broad company ingestion, or unused parent

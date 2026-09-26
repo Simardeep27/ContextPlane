@@ -6,6 +6,7 @@ import { protectedReadReceipt } from '@context-plane/contracts/fixtures';
 import { DurablePersistenceAdapter, connectStorage } from '../src/index.js';
 import { sanitized, scopedKey } from '../src/validation.js';
 import { conformance } from './conformance.js';
+import { recordConformance } from './records-conformance.js';
 
 if (process.env.CONTEXT_PLANE_ATLAS_TESTS !== '1') {
   it('live Atlas tests require CONTEXT_PLANE_ATLAS_TESTS=1 and runtime MONGODB_URI', { skip: true }, () => {});
@@ -21,7 +22,12 @@ if (process.env.CONTEXT_PLANE_ATLAS_TESTS !== '1') {
     if (!connection) return;
     try {
       assert.match(database, /^cp_persistence_test_[a-f0-9]{32}$/);
-      await sanitized(() => connection!.client.db(database).dropDatabase());
+      // Atlas's readWriteAnyDatabase role cannot dropDatabase, but it can drop
+      // collections; a database with no collections no longer exists.
+      await sanitized(async () => {
+        const db = connection!.client.db(database);
+        for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) await db.dropCollection(name);
+      });
     } finally { await connection.close(); }
   });
   const expire = async (scope: ProjectScope, runId: RunId) => {
@@ -30,10 +36,11 @@ if (process.env.CONTEXT_PLANE_ATLAS_TESTS !== '1') {
       { _id: scopedKey(scope, runId) } as never, { $set: { 'value.expiresAt': new Date(0).toISOString() } }));
   };
   conformance('live Atlas (isolated temporary database)', async () => ({ storage: connection!.storage, expire }));
+  recordConformance('live Atlas records (isolated temporary database)', async () => ({ storage: connection!.storage, expire }));
 
   it('verifies all required unique indexes on the real cluster', async () => {
     await sanitized(async () => {
-      for (const collection of ['cp_projects', 'cp_runs', 'cp_receipts', 'cp_events']) {
+      for (const collection of ['cp_projects', 'cp_runs', 'cp_receipts', 'cp_events', 'cp_records']) {
         const indexes = await connection!.client.db(database).collection(collection).listIndexes().toArray();
         assert.ok(indexes.some(index => index.name === 'scope_key' && index.unique));
         if (collection === 'cp_events') assert.ok(indexes.some(index => index.name === 'scope_cursor' && index.unique));

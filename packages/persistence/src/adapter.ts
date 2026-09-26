@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { EventEnvelope, LeaseToken, OperationKey, OperationReceipt, PersistenceAdapter,
-  ProjectProjection, ProjectScope, RunCheckpoint, RunId } from '@context-plane/contracts';
+import { immutableRecordKinds, recordKinds } from '@context-plane/contracts';
+import type { CommitStep, ContextRecord, EventEnvelope, LeaseToken, OperationKey, OperationReceipt, PersistenceAdapter,
+  ProjectProjection, ProjectScope, RecordKind, RecordOf, RecordWrite, RunCheckpoint, RunId } from '@context-plane/contracts';
 import type { Storage, StorageTransaction } from './storage.js';
 import { cursorNumber, hash, identifier, integer, requireThat, sameScope, scopedKey, timestamp } from './validation.js';
 
@@ -11,17 +12,17 @@ export interface AdapterOptions {
   ownerId?: string;
   leaseDurationMs?: number;
 }
-/** Additive token field prevents same-run/generation tokens crossing projects. */
-export interface ScopedLeaseToken extends LeaseToken { readonly scope: ProjectScope }
-export interface CommitStep {
-  checkpoint: RunCheckpoint;
-  lease: LeaseToken;
-  event?: EventEnvelope;
-  receipt?: OperationReceipt;
-  projection?: { value: ProjectProjection; expectedRevision: number };
-}
+/** @deprecated Scope is now part of the shared `LeaseToken`. */
+export type ScopedLeaseToken = LeaseToken;
+export type { CommitStep };
 
-/** Implements wireframe e6012cd. Authorization and workflow decisions stay in core/API. */
+const recordKey = (kind: RecordKind, recordId: string) => kind + ':' + recordId;
+const candidateOf = (record: ContextRecord): string | undefined =>
+  record.kind === 'policy_candidate' ? record.sourceCandidateHash
+    : record.kind === 'candidate' || record.kind === 'check_result' || record.kind === 'publication_authorization'
+      ? record.candidateHash : undefined;
+
+/** Implements the shared PersistenceAdapter. Authorization and workflow decisions stay in core/API. */
 export class DurablePersistenceAdapter implements PersistenceAdapter {
   private readonly ownerId: string;
   private readonly leaseDurationMs: number;
@@ -34,12 +35,13 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
   private project(tx: StorageTransaction): Promise<ProjectState> {
     return tx.get<ProjectState>('projects', 'state').then(state => state ?? { cursor: 0, projection: null });
   }
-  private token(scope: ProjectScope, runId: RunId, run: RunState): ScopedLeaseToken {
+  private token(scope: ProjectScope, runId: RunId, run: RunState): LeaseToken {
     return { scope: { orgId: scope.orgId, projectId: scope.projectId }, runId, generation: run.generation, expiresAt: run.expiresAt };
   }
   private validateLease(lease: LeaseToken, scope?: ProjectScope) {
     identifier(lease?.runId); integer(lease?.generation, 1); timestamp(lease?.expiresAt);
-    if (scope) sameScope(scope, (lease as ScopedLeaseToken).scope);
+    scopedKey(lease.scope, lease.runId);
+    if (scope) sameScope(scope, lease.scope);
   }
   private async fenced(tx: StorageTransaction, runId: RunId, lease: LeaseToken): Promise<RunState> {
     this.validateLease(lease); requireThat(lease.runId === runId, 'LEASE_LOST');
@@ -48,7 +50,7 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
       Date.parse(run.expiresAt) > tx.now.getTime(), 'LEASE_LOST');
     return run;
   }
-  async acquireLease(scope: ProjectScope, runId: RunId): Promise<ScopedLeaseToken | null> {
+  async acquireLease(scope: ProjectScope, runId: RunId): Promise<LeaseToken | null> {
     scopedKey(scope, runId);
     return this.storage.transaction(scope, async tx => {
       const previous = await tx.get<RunState>('runs', runId);
@@ -58,7 +60,7 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
       await tx.put('runs', runId, run); return this.token(scope, runId, run);
     });
   }
-  async renewLease(scope: ProjectScope, lease: LeaseToken): Promise<ScopedLeaseToken | null> {
+  async renewLease(scope: ProjectScope, lease: LeaseToken): Promise<LeaseToken | null> {
     scopedKey(scope, lease?.runId); this.validateLease(lease, scope);
     return this.storage.transaction(scope, async tx => {
       const run = await tx.get<RunState>('runs', lease.runId);
@@ -179,6 +181,115 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
   async readProjection(scope: ProjectScope): Promise<ProjectProjection | null> {
     scopedKey(scope, 'state'); return (await this.storage.read<ProjectState>(scope, 'projects', 'state'))?.projection ?? null;
   }
+  private validateRecord(write: RecordWrite) {
+    const { record, expectedRevision } = write ?? {};
+    requireThat(recordKinds.includes(record?.kind)); scopedKey(record.scope, record.recordId);
+    integer(expectedRevision); integer(record.revision, 1);
+    requireThat(record.revision === expectedRevision + 1, 'CONFLICT');
+    timestamp(record.recordedAt);
+    requireThat(Array.isArray(record.evidenceIds) && record.evidenceIds.length <= 100); record.evidenceIds.forEach(identifier);
+    const version = (v: { candidateHash: string; dependencyRevision: number; policyEpoch: number }) => {
+      identifier(v?.candidateHash); integer(v.dependencyRevision, 1); integer(v.policyEpoch);
+    };
+    switch (record.kind) {
+      case 'dependency_revision':
+        identifier(record.serviceId); requireThat(record.recordId === record.serviceId);
+        integer(record.dependencyRevision, 1); identifier(record.artifactHash); identifier(record.publishedBy);
+        requireThat(Array.isArray(record.consumers)); record.consumers.forEach(identifier);
+        break;
+      case 'candidate':
+        requireThat(record.recordId === record.candidateHash); version(record.basedOn);
+        // The candidate hash is fixed by its key; the version tuple must agree.
+        requireThat(record.basedOn.candidateHash === record.candidateHash);
+        identifier(record.serviceId); identifier(record.dependencyServiceId); identifier(record.authorAgentId);
+        requireThat(['proposed', 'stale', 'staged', 'checked', 'authorized', 'published', 'rejected'].includes(record.status));
+        requireThat(Array.isArray(record.artifactHashes) && record.artifactHashes.length > 0); record.artifactHashes.forEach(identifier);
+        requireThat(Array.isArray(record.reasonCodes)); record.reasonCodes.forEach(identifier);
+        break;
+      case 'check_result':
+        version(record.version); requireThat(record.version.candidateHash === record.candidateHash);
+        identifier(record.registeredCommand); identifier(record.operationKey); requireThat(typeof record.passed === 'boolean');
+        requireThat(Array.isArray(record.artifactHashes)); record.artifactHashes.forEach(identifier);
+        break;
+      case 'publication_authorization':
+        requireThat(record.recordId === record.candidateHash); version(record.version);
+        requireThat(record.version.candidateHash === record.candidateHash); identifier(record.dependencyServiceId);
+        requireThat(record.decision === 'authorized' || record.decision === 'rejected');
+        [record.checkResultIds, record.acknowledgedBy, record.reasonCodes].forEach(list => {
+          requireThat(Array.isArray(list)); list.forEach(identifier);
+        });
+        requireThat(record.decision === 'rejected' || record.checkResultIds.length > 0);
+        break;
+      case 'policy_candidate':
+        requireThat(record.recordId === record.policyCandidateHash); identifier(record.targetAgentId);
+        identifier(record.sourceCandidateHash); requireThat(record.rule?.type === 'require_ack_before_stage');
+        requireThat(['proposed', 'evaluated', 'rejected', 'promoted'].includes(record.status));
+        break;
+      case 'policy_version':
+        integer(record.policyEpoch, 1); identifier(record.targetAgentId); identifier(record.policyCandidateHash);
+        requireThat(record.recordId === record.targetAgentId + '@' + record.policyEpoch);
+        requireThat(record.evaluation?.unsafeCasesCaught === record.evaluation?.unsafeCasesTotal &&
+          record.evaluation.validCasesBlocked === 0);
+        break;
+    }
+    hash(record);
+  }
+  private async record(tx: StorageTransaction, write: RecordWrite): Promise<void> {
+    const { record } = write; const key = recordKey(record.kind, record.recordId);
+    const previous = await tx.get<ContextRecord>('records', key);
+    if (previous && hash(previous) === hash(record)) return;
+    requireThat(!previous || !immutableRecordKinds.includes(record.kind), 'IDEMPOTENCY_CONFLICT');
+    requireThat((previous?.revision ?? 0) === write.expectedRevision, 'CONFLICT');
+    const head = (serviceId: string) => tx.get<RecordOf<'dependency_revision'>>('records', recordKey('dependency_revision', serviceId));
+    switch (record.kind) {
+      case 'dependency_revision': {
+        // The published head only moves forward, one revision at a time.
+        const prior = previous as RecordOf<'dependency_revision'> | null;
+        requireThat(!prior || record.dependencyRevision === prior.dependencyRevision + 1, 'CONFLICT');
+        break;
+      }
+      case 'candidate': {
+        const prior = previous as RecordOf<'candidate'> | null;
+        requireThat(!prior || (prior.serviceId === record.serviceId && prior.authorAgentId === record.authorAgentId &&
+          prior.dependencyServiceId === record.dependencyServiceId), 'CONFLICT');
+        const current = await head(record.dependencyServiceId);
+        requireThat(!current || record.basedOn.dependencyRevision <= current.dependencyRevision, 'CONFLICT');
+        break;
+      }
+      case 'publication_authorization': {
+        if (record.decision !== 'authorized') break;
+        // Only the exact candidate whose checks passed under the current
+        // dependency head and policy epoch can be authorized.
+        const current = await head(record.dependencyServiceId);
+        const project = await this.project(tx);
+        requireThat(current?.dependencyRevision === record.version.dependencyRevision &&
+          (project.projection?.policyEpoch ?? record.version.policyEpoch) === record.version.policyEpoch, 'CONFLICT');
+        for (const id of record.checkResultIds) {
+          const check = await tx.get<RecordOf<'check_result'>>('records', recordKey('check_result', id));
+          requireThat(check?.passed === true && hash(check.version) === hash(record.version), 'CONFLICT');
+        }
+        break;
+      }
+      case 'policy_version':
+        requireThat(record.policyEpoch === 1 ||
+          await tx.get('records', recordKey('policy_version', record.targetAgentId + '@' + (record.policyEpoch - 1))) !== null, 'CONFLICT');
+        break;
+    }
+    await tx.put('records', key, record);
+  }
+  /** Trusted API/seed write; worker writes use fenced commitStep. */
+  async saveRecord(write: RecordWrite): Promise<void> {
+    this.validateRecord(write); const snapshot = structuredClone(write);
+    await this.storage.transaction(write.record.scope, tx => this.record(tx, snapshot));
+  }
+  async readRecord<Kind extends RecordKind>(scope: ProjectScope, kind: Kind, recordId: string): Promise<RecordOf<Kind> | null> {
+    requireThat(recordKinds.includes(kind)); scopedKey(scope, recordId);
+    return this.storage.read<RecordOf<Kind>>(scope, 'records', recordKey(kind, recordId));
+  }
+  async listRecords<Kind extends RecordKind>(scope: ProjectScope, kind: Kind): Promise<readonly RecordOf<Kind>[]> {
+    requireThat(recordKinds.includes(kind)); scopedKey(scope, 'state');
+    return this.storage.list<RecordOf<Kind>>(scope, 'records', kind + ':', 100);
+  }
   /** Atomically save one worker step. No runner/model calls inside this method. */
   async commitStep(input: CommitStep): Promise<void> {
     const step = structuredClone(input); const scope = step.checkpoint.scope;
@@ -194,6 +305,13 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
     if (step.projection) {
       this.validateProjection(step.projection.value, step.projection.expectedRevision); sameScope(scope, step.projection.value.scope);
     }
+    const records = step.records ?? [];
+    requireThat(Array.isArray(records) && records.length <= 20);
+    for (const write of records) {
+      this.validateRecord(write); sameScope(scope, write.record.scope);
+      const named = candidateOf(write.record);
+      if (step.candidateHash !== undefined && named !== undefined) requireThat(named === step.candidateHash, 'CONFLICT');
+    }
     await this.storage.transaction(scope, async tx => {
       // An exact retry is read-only at the domain level and may be reconciled
       // after expiry. Any new write must pass the current lease fence.
@@ -201,7 +319,12 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
       const existingEvent = step.event ? await tx.get<EventEnvelope>('events', step.event.eventId) : null;
       const existingReceipt = step.receipt ? await tx.get<OperationReceipt>('receipts', step.receipt.operationKey) : null;
       const project = await this.project(tx);
-      const replay = run?.checkpoint && hash(run.checkpoint) === hash(step.checkpoint) &&
+      let recordsReplayed = true;
+      for (const { record } of records) {
+        const existing = await tx.get<ContextRecord>('records', recordKey(record.kind, record.recordId));
+        if (!existing || hash(existing) !== hash(record)) { recordsReplayed = false; break; }
+      }
+      const replay = recordsReplayed && run?.checkpoint && hash(run.checkpoint) === hash(step.checkpoint) &&
         (!step.event || (existingEvent && hash(existingEvent) === hash(step.event))) &&
         (!step.receipt || (existingReceipt && this.receiptHash(existingReceipt) === this.receiptHash(step.receipt))) &&
         (!step.projection || (project.projection && hash(project.projection) === hash(step.projection.value)));
@@ -212,6 +335,7 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
       await this.fenced(tx, step.checkpoint.runId, step.lease);
       if (step.event) await this.append(tx, step.event);
       if (step.receipt) await this.receipt(tx, step.receipt, step.lease);
+      for (const write of records) await this.record(tx, write);
       await this.checkpoint(tx, step.checkpoint, step.lease);
       if (step.projection) await this.projection(tx, step.projection.value, step.projection.expectedRevision);
     });

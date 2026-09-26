@@ -13,7 +13,7 @@ interface Row {
   lockVersion?: number;
   clock?: Date;
 }
-const kinds: readonly CollectionKind[] = ['projects', 'runs', 'events', 'receipts'];
+const kinds: readonly CollectionKind[] = ['projects', 'runs', 'events', 'receipts', 'records'];
 
 export class MongoStorage implements Storage {
   constructor(private readonly client: MongoClient, private readonly db: Db) {}
@@ -76,7 +76,15 @@ export class MongoStorage implements Storage {
     return sanitized(async () => (await this.collection('events').find({ orgId: scope.orgId,
       projectId: scope.projectId, cursor: { $gt: after } }).sort({ cursor: 1 }).limit(limit).toArray()).map(row => row.value as T));
   }
+  async list<T>(scope: ProjectScope, kind: CollectionKind, keyPrefix: string, limit: number): Promise<T[]> {
+    scopedKey(scope, 'state');
+    // Anchored prefix on the indexed (orgId, projectId, key) tuple.
+    return sanitized(async () => (await this.collection(kind).find({ orgId: scope.orgId, projectId: scope.projectId,
+      key: { $regex: '^' + escapeRegex(keyPrefix) } }).sort({ key: 1 }).limit(limit).toArray()).map(row => row.value as T));
+  }
 }
+
+const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export async function connectStorage(database: string, uri = process.env.MONGODB_URI) {
   identifier(database); requireThat(uri && /^mongodb(?:\+srv)?:\/\//.test(uri));

@@ -38,4 +38,13 @@ export class MemoryStorage implements Storage {
       return kind === 'events' && orgId === scope.orgId && projectId === scope.projectId && (row.cursor ?? 0) > after;
     }).map(([, row]) => row).sort((a, b) => a.cursor! - b.cursor!).slice(0, limit).map(row => row.value as T));
   }
+  async list<T>(scope: ProjectScope, kind: CollectionKind, keyPrefix: string, limit: number): Promise<T[]> {
+    scopedKey(scope, 'state');
+    return structuredClone([...this.rows.entries()].flatMap(([encoded, row]) => {
+      const [rowKind, scoped] = JSON.parse(encoded) as [string, string];
+      const [orgId, projectId, key] = JSON.parse(scoped) as string[];
+      return rowKind === kind && orgId === scope.orgId && projectId === scope.projectId && key!.startsWith(keyPrefix)
+        ? [{ key: key!, value: row.value as T }] : [];
+    }).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)).slice(0, limit).map(row => row.value));
+  }
 }
