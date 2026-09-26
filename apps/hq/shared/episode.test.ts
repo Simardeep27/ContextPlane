@@ -27,3 +27,9 @@ test('candidate-only rule is labelled Candidate', () => {
   const ep = learningEpisode(recorded.filter(r => r.action !== 'policy_evaluated' && r.action !== 'policy_activated' && r.action !== 'learn'));
   assert.equal(ep.rule?.status, 'Candidate');
 });
+
+test('sample episode tells the complete loop', async () => {
+  const { sampleEpisode } = await import('./episode.ts');
+  assert.equal(sampleEpisode.stages.length, 5);
+  assert.ok(sampleEpisode.stages.every(s => s.fact) && sampleEpisode.metrics.every(m => m.value));
+});

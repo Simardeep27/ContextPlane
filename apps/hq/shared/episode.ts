@@ -64,3 +64,24 @@ export function learningEpisode(records: readonly EvidenceRecord[]): LearningEpi
     ],
   };
 }
+
+/** ILLUSTRATIVE ONLY: the ideal full loop for the "How it works" sample view. Never shown as recorded data. */
+export const sampleEpisode: LearningEpisode = {
+  task: 'Change Invoices totals from cents to dollars without breaking Payouts.', activeEpoch: 4, candidateEpoch: 5,
+  rule: { text: 'Before an Invoices agent changes a shared unit, it must hold an acknowledgement from the Payouts agent at the current dependency revision.',
+    reason: 'Invoices change was rejected: Payouts had not acknowledged the new unit.', status: 'Active',
+    hash: 'sample', target: 'sample_invoices_agent', datasetHash: 'sample' },
+  evaluation: { correct: 12, total: 12, unsafeAllowed: 0, validBlocked: 0 },
+  stages: [
+    { id: 'failure', label: 'Failure', eventIds: [], fact: 'Invoices change rejected: missing acknowledgement from Payouts.' },
+    { id: 'proposed', label: 'Proposed rule', eventIds: [], fact: 'Rule proposed for the Invoices agent at epoch 4.' },
+    { id: 'evaluation', label: 'Evaluation', eventIds: [], fact: '12/12 held-out cases correct · 0 unsafe allowed · 0 valid blocked.' },
+    { id: 'activation', label: 'Activation', eventIds: [], fact: 'Activated as harness epoch 5.' },
+    { id: 'next', label: 'Next task', eventIds: [], fact: 'Next unit change asked Payouts first and shipped on the first attempt.' },
+  ],
+  metrics: [
+    { label: 'Verified tasks', value: '9 → 14 / week' }, { label: 'Repair attempts', value: '3 → 0' },
+    { label: 'Execution time', value: '41 → 18 min' }, { label: 'Cost', value: '$6.10 → $2.40' },
+    { label: 'Human interventions', value: '2 → 0' },
+  ],
+};
