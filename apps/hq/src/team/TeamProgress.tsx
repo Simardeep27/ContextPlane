@@ -21,6 +21,11 @@ export function TeamProgress({ snapshot }: { snapshot: TeamSnapshot | null }) {
         <small>{new Date(event.occurredAt).toLocaleString()} · {event.actor} · {event.type.replaceAll('_', ' ')}</small>
         <p>{event.summary ?? event.task ?? 'Activity recorded without a summary.'}</p>
       </li>)}</ol> : <p className="episode-muted">No ledger events returned in this snapshot. The updates above come from work-status reports.</p>}
+      <h3>Steward insights</h3>
+      {snapshot.insights?.length ? <ol className="team-activity">{snapshot.insights.map(insight => <li key={`${insight.author}:${insight.createdAt}:${insight.title}`}>
+        <small>{new Date(insight.createdAt).toLocaleString()} · {insight.author} · derived, not verified</small>
+        <p>{insight.title}</p>
+      </li>)}</ol> : <p className="episode-muted">No company-brain insights yet. The steward distills the ledger every 10 minutes.</p>}
       <small>Fetched {new Date(snapshot.fetchedAt).toLocaleString()} · updates every 5 seconds while this page is visible.</small>
     </>}
   </section>;
