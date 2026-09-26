@@ -4,7 +4,8 @@
   "private": true,
   "description": "Scoped, durable agent runtime for the Context Plane POC",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

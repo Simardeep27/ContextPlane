@@ -113,6 +113,8 @@ export const blockedResumedCompletedProjections = [
       expiresAt: "2026-09-26T14:16:00.000Z",
       revision: 1,
     }],
+    dependencies: [],
+    addressedMessages: [],
     timeline: timeline.slice(0, 1),
   },
   {
@@ -141,6 +143,8 @@ export const blockedResumedCompletedProjections = [
       expiresAt: "2026-09-26T14:16:00.000Z",
       revision: 2,
     }],
+    dependencies: [],
+    addressedMessages: [],
     timeline: timeline.slice(0, 3),
   },
   {
@@ -169,6 +173,8 @@ export const blockedResumedCompletedProjections = [
       expiresAt: "2026-09-26T14:16:00.000Z",
       revision: 2,
     }],
+    dependencies: [],
+    addressedMessages: [],
     timeline,
   },
 ] as const satisfies readonly ProjectProjection[];

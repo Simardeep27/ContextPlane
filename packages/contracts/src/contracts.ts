@@ -18,6 +18,7 @@ export type DependencyId = Brand<string, "DependencyId">;
 export type PolicyId = Brand<string, "PolicyId">;
 export type PolicyHash = Brand<string, "PolicyHash">;
 export type CheckResultId = Brand<string, "CheckResultId">;
+export type MessageId = Brand<string, "MessageId">;
 
 export interface ProjectScope<
   Org extends OrgId = OrgId,
@@ -148,6 +149,24 @@ export interface TimelineEntry {
   readonly evidenceIds: readonly EvidenceId[];
 }
 
+export interface DependencyProjection {
+  readonly dependencyId: DependencyId;
+  readonly providerServiceId: string;
+  readonly consumerServiceId: string;
+  readonly revision: number;
+  readonly artifactHash: ArtifactHash;
+  readonly evidenceIds: readonly EvidenceId[];
+}
+
+export interface AddressedMessage {
+  readonly messageId: MessageId;
+  readonly senderAgentId: AgentId;
+  readonly recipientAgentId: AgentId;
+  readonly body: string;
+  readonly dependencyRevision: number;
+  readonly evidenceIds: readonly EvidenceId[];
+}
+
 export interface ProjectProjection<Version extends ChangeCheckVersion = ChangeCheckVersion> {
   readonly scope: ProjectScope;
   readonly revision: number;
@@ -155,6 +174,8 @@ export interface ProjectProjection<Version extends ChangeCheckVersion = ChangeCh
   readonly policyEpoch: number;
   readonly runs: readonly RunProjection[];
   readonly accessRequests: readonly AccessRequestProjection[];
+  readonly dependencies: readonly DependencyProjection[];
+  readonly addressedMessages: readonly AddressedMessage[];
   readonly timeline: readonly TimelineEntry[];
   /** The exact candidate tuple represented by a candidate-specific snapshot. */
   readonly candidateVersion?: Version;

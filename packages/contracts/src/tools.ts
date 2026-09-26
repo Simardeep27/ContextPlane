@@ -1,3 +1,5 @@
+import type { AddressedMessage, AgentId, EvidenceId, ProjectScope } from "./contracts.js";
+
 export const toolNames = [
   "get_project_context",
   "request_status",
@@ -25,11 +27,13 @@ export interface ToolDefinition {
 }
 
 export interface AgentContextPacket {
+  readonly scope: ProjectScope;
   readonly role: AgentRole;
-  readonly agentId: string;
+  readonly agentId: AgentId;
   readonly task: string;
-  readonly addressedMessageIds: readonly string[];
-  readonly evidenceIds: readonly string[];
+  readonly dependencyRevision: number;
+  readonly addressedMessages: readonly AddressedMessage[];
+  readonly evidenceIds: readonly EvidenceId[];
   readonly allowedTools: readonly ToolName[];
   readonly policyEpoch: number;
 }
