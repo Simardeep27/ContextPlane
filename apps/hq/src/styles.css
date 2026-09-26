@@ -312,3 +312,19 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:
 }
 .live-label__card b { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .app--live .pill { text-transform: none; }
+
+/* Live mode density fixes: clamp long optimizer / answer text, compact robot labels. */
+.app--live { --top: 108px; }
+.live-hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; min-width: 0; }
+.app--live .topbar__status { flex-wrap: wrap; justify-content: flex-end; }
+.app--live .answer__lines { max-height: 38vh; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; }
+.live-answer { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.brain-label em { display: block; white-space: nowrap; }
+.live-label { flex-direction: row; gap: 5px; padding: 2px 7px; border-radius: 999px; border-top-width: 1px; border-color: color-mix(in srgb, var(--state) 45%, transparent); }
+.live-label .agent-label__dot { width: 6px; height: 6px; flex-shrink: 0; }
+.live-label__name { font-size: 10px; max-width: 90px; }
+.live-label__head { font-size: 11px; font-weight: 600; color: var(--text); }
+.live-label__card > span:not(.live-label__head) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+@media (max-width: 960px) {
+  .app--live { --top: 176px; }
+}

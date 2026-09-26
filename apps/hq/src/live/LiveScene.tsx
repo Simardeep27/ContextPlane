@@ -66,7 +66,7 @@ function Brain({ pulseAt, note }: { pulseAt: number | null; note: string | null 
         <div className="brain-label">
           <strong>Company brain</strong>
           <span>harness optimizer</span>
-          {note && <em title={note}>{note}</em>}
+          {note && <em>{note}</em>}
         </div>
       </Label>
     </group>
@@ -173,10 +173,11 @@ function Robot({ view, position, freshAt, selected, onSelect }: { view: AgentVie
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
         >
-          <span className="live-label__name mono" title={view.identity}>{view.suffix}</span>
-          <span className="live-label__state"><span className="agent-label__dot" />{statusLabels[view.status]}</span>
+          <span className="agent-label__dot" aria-label={statusLabels[view.status]} />
+          <span className="live-label__name mono">{view.suffix}</span>
           {hovered && !selected && (
             <span className="live-label__card">
+              <span className="live-label__head"><span className="mono">{view.identity}</span> · <span style={{ color: color }}>{statusLabels[view.status]}</span></span>
               <span><b>Task</b> {view.task ?? "not reported"}</span>
               <span><b>Summary</b> {view.summary ?? "not reported"}</span>
               <span><b>Last update</b> {view.updatedAt ? clock(view.updatedAt) : "not reported"}</span>

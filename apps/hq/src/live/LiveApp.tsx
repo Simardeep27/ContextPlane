@@ -33,7 +33,7 @@ export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSim
         <div className="brand"><div className="brand__mark" aria-hidden /><div>
           <h1>Context Plane HQ</h1><p>Live view of the real team's agents</p>
         </div></div>
-        <p className="topbar__hint">{poll.report
+        <p className="topbar__hint live-hint" title={poll.report ? `Optimizer: ${poll.report.suggestion}` : undefined}>{poll.report
           ? <>Optimizer: {poll.report.suggestion}</>
           : "Read-only projection of the team's shared work-status. Polls every 5 seconds."}</p>
         <div className="topbar__status">
@@ -78,12 +78,12 @@ export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSim
                 {answer.lines.map((line) => (
                   <li key={line.identity}>
                     <span className="state-dot" style={{ background: statusColor(line.status) }} />
-                    <button type="button" className="live-answer" onClick={() => setSelected(line.identity)}>{line.text}</button>
+                    <button type="button" className="live-answer" title={line.text} onClick={() => setSelected(line.identity)}>{line.text}</button>
                   </li>
                 ))}
               </ul>
             )}
-            <p className="answer__foot">Built only from the live team projection. No model summarization.</p>
+            <p className="answer__foot">Hover an answer for the full text; click it to open the agent. Built only from the live team projection. No model summarization.</p>
           </div>
         </section>
       </div>
