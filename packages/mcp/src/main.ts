@@ -4,7 +4,8 @@ import { connectStorage, DurablePersistenceAdapter } from '@context-plane/persis
 import { createApp } from './app.js';
 import { MongoCoordinationRepository } from './coordination.js';
 import { MongoBrainRepository } from './brain.js';
-import { brainHandlers, coordinationHandlers, implementedTools, readHandlers } from './domain.js';
+import { brainHandlers, coordinationHandlers, implementedTools, overlapHandlers, readHandlers } from './domain.js';
+import { embedderFromEnvironment, MongoWorkEmbeddingStore, OverlapService, type WorkEmbeddingStore } from './overlap.js';
 
 function setting(name: string): string {
   const value = process.env[name];
@@ -42,14 +43,31 @@ async function main() {
     })().catch(error => { brain = undefined; throw error; });
     return brain;
   };
+  let workStore: Promise<MongoWorkEmbeddingStore> | undefined;
+  const workEmbeddings = async () => {
+    workStore ??= (async () => {
+      const initialized = new MongoWorkEmbeddingStore((await connection()).client.db(database), scope);
+      await initialized.initialize();
+      return initialized;
+    })().catch(error => { workStore = undefined; throw error; });
+    return workStore;
+  };
+  const lazyStore: WorkEmbeddingStore = {
+    upsert: async record => (await workEmbeddings()).upsert(record),
+    vectorSearch: async (...args) => (await workEmbeddings()).vectorSearch(...args),
+    list: async (...args) => (await workEmbeddings()).list(...args),
+  };
+  // VOYAGE_API_KEY is optional; without it check_overlap uses the lexical fallback.
+  const overlap = new OverlapService(lazyStore, embedderFromEnvironment());
   const telemetry = telemetryFromEnvironment();
   const app = createApp({ telemetry, token, principal: { scope, coordinationScope,
     identity: 'shared-project-coordinator', allowedTools: implementedTools },
     handlers: { ...readHandlers(async () => {
       repository ??= new DurablePersistenceAdapter((await connection()).storage);
       return repository;
-    }), ...coordinationHandlers(coordinationRepository, brainRepository),
-    ...brainHandlers(coordinationRepository, brainRepository) },
+    }), ...coordinationHandlers(coordinationRepository, brainRepository, overlap),
+    ...brainHandlers(coordinationRepository, brainRepository),
+    ...overlapHandlers(coordinationRepository, overlap) },
     ready: async () => {
       await (await connection()).client.db(database).command({ ping: 1 });
       await coordinationRepository();

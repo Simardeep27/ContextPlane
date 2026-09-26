@@ -8,7 +8,8 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { ProjectScope } from '@context-plane/contracts';
 import { createApp } from '../src/app.js';
 import { MemoryCoordinationRepository } from '../src/coordination.js';
-import { brainHandlers, coordinationHandlers, implementedTools, readHandlers } from '../src/domain.js';
+import { brainHandlers, coordinationHandlers, implementedTools, overlapHandlers, readHandlers } from '../src/domain.js';
+import { MemoryWorkEmbeddingStore, OverlapService } from '../src/overlap.js';
 import { MemoryBrainRepository } from '../src/brain.js';
 import { verifySmoke } from '../src/smoke.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -35,7 +36,8 @@ async function start(ready: () => Promise<void> = async () => {}) {
     token,
     principal: { scope, coordinationScope: 'project:context-plane', identity: 'test-coordinator', allowedTools: implementedTools },
     handlers: { ...readHandlers(async () => repository), ...coordinationHandlers(async () => coordination, async () => brain),
-      ...brainHandlers(async () => coordination, async () => brain) },
+      ...brainHandlers(async () => coordination, async () => brain),
+      ...overlapHandlers(async () => coordination, new OverlapService(new MemoryWorkEmbeddingStore())) },
     ready,
   });
   const server = app.listen(0, '127.0.0.1');
@@ -149,17 +151,17 @@ describe('MCP HTTP service', () => {
     assert.deepEqual(await response.json(), { atlas: 'unavailable', code: 'STORAGE_UNAVAILABLE' });
   });
 
-  it('smoke verifies twelve tools, all coordination actions, and reconnects locally', async () => {
+  it('smoke verifies thirteen tools, all coordination actions, and reconnects locally', async () => {
     const base = await start();
     const result = await verifySmoke(new URL('/mcp', base), token, {
       coordinationScope: 'project:context-plane', write: true,
     });
-    assert.equal(result.tools.length, 12);
+    assert.equal(result.tools.length, 13);
     assert.equal(result.coordinationWrites, 'PASS');
     assert.equal(result.reconnect, 'PASS');
   });
 
-  it('preserves all twelve tools and durable context through a restarted stdio bridge', async () => {
+  it('preserves all thirteen tools and durable context through a restarted stdio bridge', async () => {
     const base = await start();
     for (let attempt = 0; attempt < 2; attempt++) {
       const client = new Client({ name: 'twelve-tool-bridge-test', version: '1.0.0' });

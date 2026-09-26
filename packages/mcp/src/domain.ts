@@ -6,13 +6,16 @@ import { toolDefinitions, type OperationKey, type PersistenceAdapter, type Proje
 import { PersistenceError } from '@context-plane/persistence';
 import { CoordinationError, type CoordinationRepository, type CoordinationToolName } from './coordination.js';
 import { brainDigest, brainKinds, BRAIN_BODY_MAX_BYTES, type BrainKind, type BrainRepository } from './brain.js';
+import { workFromMessage, workFromSurface, type OverlapService } from './overlap.js';
 
 export const coordinationTools = ['register_agent', 'register_dependency', 'get_context', 'publish_surface',
   'send_message', 'receive_inbox', 'acknowledge', 'read_ledger'] as const satisfies readonly CoordinationToolName[];
 export const readTools = ['get_project_context', 'read_operation'] as const;
 export const brainTools = ['remember', 'recall'] as const;
 export type BrainToolName = (typeof brainTools)[number];
-export const implementedTools = [...readTools, ...coordinationTools, ...brainTools] as const;
+export const overlapTools = ['check_overlap'] as const;
+export type OverlapToolName = (typeof overlapTools)[number];
+export const implementedTools = [...readTools, ...coordinationTools, ...brainTools, ...overlapTools] as const;
 export type ImplementedToolName = (typeof implementedTools)[number];
 export interface Principal {
   readonly scope: ProjectScope;
@@ -125,6 +128,16 @@ const brainDefinitions: Readonly<Record<BrainToolName, Tool>> = {
   },
 };
 
+const overlapDefinitions: Readonly<Record<OverlapToolName, Tool>> = {
+  check_overlap: {
+    name: 'check_overlap', description: 'Before starting work, check whether another identity is already doing a semantically similar task. Returns the top matches from other identities (similarity, owner, task, status, last update, citations). A match with similarity >= 0.82 is flagged as a collision: coordinate with its owner first. Uses Voyage embeddings + Atlas Vector Search when configured, otherwise deterministic token overlap (method "lexical").',
+    inputSchema: { type: 'object', additionalProperties: false,
+      properties: { identity: identifier, scope: identifier, task_text: { type: 'string', minLength: 1, maxLength: 2000 },
+        files: { type: 'array', maxItems: 50, items: { type: 'string', minLength: 1, maxLength: 256 } } },
+      required: ['identity', 'scope', 'task_text'] },
+  },
+};
+
 function requireCoordinationScope(principal: Principal, args: Record<string, unknown>): string {
   if (args.scope !== principal.coordinationScope) throw new CoordinationError('INVALID_INPUT');
   return args.scope as string;
@@ -135,7 +148,7 @@ async function requireRegistered(repository: CoordinationRepository, identity: s
 }
 
 export function coordinationHandlers(repository: () => Promise<CoordinationRepository>,
-  brain?: () => Promise<BrainRepository>): DomainHandlers {
+  brain?: () => Promise<BrainRepository>, overlap?: OverlapService): DomainHandlers {
   return {
     register_agent: { readOnly: false, execute: async (principal, args) => {
       const scope = requireCoordinationScope(principal, args);
@@ -158,16 +171,22 @@ export function coordinationHandlers(repository: () => Promise<CoordinationRepos
     publish_surface: { readOnly: false, execute: async (principal, args) => {
       const scope = requireCoordinationScope(principal, args); const repo = await repository();
       await requireRegistered(repo, args.identity as string, scope);
-      return repo.publishSurface({ surfaceName: args.surface_name as string, coordinationScope: scope,
+      const surface = await repo.publishSurface({ surfaceName: args.surface_name as string, coordinationScope: scope,
         ownerIdentity: args.identity as string, kind: args.kind as string, content: args.content });
+      const work = workFromSurface(surface.ownerIdentity, scope, surface.surfaceName, surface.kind, surface.content, surface.revision);
+      if (work && overlap) overlap.recordInBackground(work);
+      return surface;
     } },
     send_message: { readOnly: false, execute: async (principal, args) => {
       const scope = requireCoordinationScope(principal, args); const repo = await repository();
       await requireRegistered(repo, args.identity as string, scope);
       await requireRegistered(repo, args.recipient as string, scope);
-      return repo.sendMessage({ messageId: args.message_id as string, coordinationScope: scope,
+      const message = await repo.sendMessage({ messageId: args.message_id as string, coordinationScope: scope,
         senderIdentity: args.identity as string, recipientIdentity: args.recipient as string,
         body: args.body as string, evidenceIds: (args.evidence_ids ?? []) as string[] });
+      const work = workFromMessage(message.senderIdentity, scope, message.messageId, message.body);
+      if (work && overlap) overlap.recordInBackground(work);
+      return message;
     } },
     receive_inbox: { readOnly: false, execute: async (principal, args) => {
       const scope = requireCoordinationScope(principal, args); const repo = await repository();
@@ -212,6 +231,18 @@ export function brainHandlers(coordination: () => Promise<CoordinationRepository
   };
 }
 
+/** Read-only propose-time duplicate-work check (issue #53). */
+export function overlapHandlers(coordination: () => Promise<CoordinationRepository>, overlap: OverlapService): DomainHandlers {
+  return {
+    check_overlap: { readOnly: true, execute: async (principal, args) => {
+      const scope = requireCoordinationScope(principal, args);
+      await requireRegistered(await coordination(), args.identity as string, scope);
+      return { coordinationScope: scope, ...await overlap.check(scope, args.identity as string,
+        args.task_text as string, (args.files ?? []) as string[]) };
+    } },
+  };
+}
+
 const validator = new Ajv({ strict: true, allErrors: false });
 const definitions = new Map<string, Tool>([
   ...Object.entries(toolDefinitions).map(([name, definition]) => [name, {
@@ -219,6 +250,7 @@ const definitions = new Map<string, Tool>([
   }] as const),
   ...Object.entries(coordinationDefinitions),
   ...Object.entries(brainDefinitions),
+  ...Object.entries(overlapDefinitions),
 ]);
 const schemas = new Map([...definitions].map(([name, definition]) => [name, validator.compile(definition.inputSchema)]));
 function errorResult(code: string): CallToolResult {
