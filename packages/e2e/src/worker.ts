@@ -7,7 +7,7 @@ import { FileStorage } from './file-storage.js';
 
 export type WorkerConfiguration = {
   directory: string;
-  mode: 'file' | 'atlas';
+  mode: 'file' | 'atlas' | 'mongo-local';
   scope: ProjectScope;
   runId: RunId;
   credentials: Parameters<typeof createHarness>[0]['credentials'];
@@ -20,9 +20,13 @@ process.once('message', async (configuration: WorkerConfiguration) => {
   let close: (() => Promise<void>) | undefined;
   try {
     if (!isAbsolute(configuration.directory) || !configuration.scope.projectId.startsWith('e2e_')) throw new Error('Invalid isolated configuration');
-    if (configuration.mode !== 'file' && configuration.mode !== 'atlas') throw new Error('Invalid storage');
+    if (!['file', 'atlas', 'mongo-local'].includes(configuration.mode)) throw new Error('Invalid storage');
     // Hard-coded database boundary. Never honor a DB override from a client or URI path.
-    const connection = configuration.mode === 'atlas' ? await connectStorage('shivraj_experiments') : undefined;
+    const database = configuration.mode === 'atlas' ? 'shivraj_experiments'
+      : configuration.mode === 'mongo-local' ? 'context_plane_e2e_local' : null;
+    const connection = configuration.mode === 'mongo-local'
+      ? await connectStorage('context_plane_e2e_local', 'mongodb://127.0.0.1:27027/?directConnection=true&replicaSet=rs0')
+      : configuration.mode === 'atlas' ? await connectStorage('shivraj_experiments') : undefined;
     if (connection) { close = connection.close; await connection.storage.initialize(); }
     const storage = connection?.storage ?? new FileStorage(join(configuration.directory, 'storage.json'));
     const persistence = new DurablePersistenceAdapter(storage, { leaseDurationMs: configuration.leaseDurationMs });
@@ -44,7 +48,7 @@ process.once('message', async (configuration: WorkerConfiguration) => {
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Invalid listener');
-      process.send?.({ type: 'ready', port: address.port, storage: configuration.mode, database: connection ? 'shivraj_experiments' : null });
+      process.send?.({ type: 'ready', port: address.port, storage: configuration.mode, database });
     });
     process.once('SIGTERM', () => server.close(() => {
       void (close?.() ?? Promise.resolve()).finally(() => process.exit(0));

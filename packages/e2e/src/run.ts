@@ -15,14 +15,15 @@ import { mvp02Scenario, type ScenarioSnapshotId } from '@context-plane/scenario'
 import type { WorkerConfiguration } from './worker.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const mode = process.argv.includes('--atlas') ? 'atlas' : 'file';
+const mode = process.argv.includes('--mongo-local') ? 'mongo-local' : process.argv.includes('--atlas') ? 'atlas' : 'file';
+const database = mode === 'atlas' ? 'shivraj_experiments' : mode === 'mongo-local' ? 'context_plane_e2e_local' : null;
 const id = randomUUID().replaceAll('-', '');
 const directory = join(root, '.artifacts', 'e2e', id);
 const tokenA = randomUUID(), tokenA2 = randomUUID(), tokenB = randomUUID(), controllerToken = randomUUID();
 const agentA = mvp02Scenario.developers[0].agentId, agentB = mvp02Scenario.developers[1].agentId;
 const scope = { orgId: 'org_shivraj_experiments' as OrgId, projectId: `e2e_${id}` as ProjectId };
 const runId = `run_${id}` as RunId;
-const leaseDurationMs = mode === 'atlas' ? 15000 : 1500;
+const leaseDurationMs = mode === 'atlas' ? 15000 : mode === 'mongo-local' ? 3000 : 1500;
 let worker: ChildProcess | undefined;
 let base = '';
 const commands: CommandResult[] = [];
@@ -50,10 +51,10 @@ async function start(crashOnCombinedPublication: boolean, uri?: string): Promise
     const timeout = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Worker startup timed out')); }, 30000);
     child.once('error', () => { clearTimeout(timeout); reject(new Error('Worker startup failed')); });
     child.once('exit', () => { clearTimeout(timeout); reject(new Error('Worker exited before readiness')); });
-    child.once('message', (message: { type: string; port?: number }) => {
+    child.once('message', (message: { type: string; port?: number; storage?: string; database?: string | null }) => {
       clearTimeout(timeout);
-      if (message.type === 'ready' && message.port) resolveReady(message.port);
-      else reject(new Error('Worker startup failed; verify Atlas credential and scoped access privately.'));
+      if (message.type === 'ready' && message.port && message.storage === mode && message.database === database) resolveReady(message.port);
+      else reject(new Error('Worker startup failed; verify the selected isolated database is ready and accessible.'));
     });
   });
   const config: WorkerConfiguration = { directory, mode, scope, runId, controllerToken, crashOnCombinedPublication, leaseDurationMs,
@@ -98,6 +99,7 @@ async function stageAndCheck(token: string, snapshot: ScenarioSnapshotId) {
 }
 
 async function main() {
+  assert.ok(!(process.argv.includes('--atlas') && process.argv.includes('--mongo-local')), 'Select either --atlas or --mongo-local, not both.');
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const uri = atlasUri();
   if (uri) {
@@ -179,7 +181,7 @@ async function main() {
   assert.equal(final.publications.length, 2);
   const staticEvaluation = evaluateCoordinationRule({ kind: 'unit_change', requiredAgentIds: [agentB], requireCurrentDependencyRevision: true, requireAcknowledgements: true }, mvp02Scenario.policyCases);
   const manifest = {
-    schemaVersion: 1, observedAt: new Date().toISOString(), mode, database: mode === 'atlas' ? 'shivraj_experiments' : null,
+    schemaVersion: 1, observedAt: new Date().toISOString(), mode, database,
     scope, runId, sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
     sourceDirty: Boolean(execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()),
     transport: 'loopback-http-json', modelCalls: 0, agentClients: 'two scripted identities, three sessions',
@@ -188,7 +190,8 @@ async function main() {
     causalChecks: diagnosis, commands: commands.map(({ operationKey, tool, eventId, receipt, replayed }) => ({ operationKey, tool, eventId, receipt, replayed })),
     rejectedCases: negatives, policy: learned.result.policy, evaluation: learned.result.evaluation,
     equivalentStaticEvaluation: staticEvaluation, heldOut: { revision: 19, missingAck: 'block', currentAck: 'allow' },
-    limitations: ['Fixed synthetic changes and deterministic rule derivation.', 'No measured company productivity uplift.', 'HTTP clients are not Codex or Claude MCP clients.', 'File mode is a single-process test store, not MongoDB proof.', 'Runner has no OS/network isolation.'],
+    limitations: ['Fixed synthetic changes and deterministic rule derivation.', 'No measured company productivity uplift.', 'HTTP clients are not Codex or Claude MCP clients.',
+      ...(mode === 'file' ? ['File mode is a single-process test store, not MongoDB proof.'] : []), 'Runner has no OS/network isolation.'],
   };
   const serialized = JSON.stringify(manifest, null, 2) + '\n';
   for (const secret of [tokenA, tokenA2, tokenB, controllerToken, ...(uri ? [uri] : [])]) assert.equal(serialized.includes(secret), false);

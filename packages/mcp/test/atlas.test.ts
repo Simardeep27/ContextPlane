@@ -47,4 +47,48 @@ if (process.env.CONTEXT_PLANE_ATLAS_TESTS !== '1') {
       assert.deepEqual(await repository.receiveInbox('codex:peer', 'project:context-plane', 10, 60), []);
     } finally { await second.close(); }
   });
+
+  it('reconciles simultaneous sends and fences expired or replaced leases in Mongo', async () => {
+    const db = cleanup!.client.db(database);
+    const repository = new MongoCoordinationRepository(db, scope);
+    await repository.initialize();
+    const message = { messageId: 'atlas-race-message', coordinationScope: 'project:context-plane',
+      senderIdentity: 'race:sender', recipientIdentity: 'race:recipient', body: 'Concurrent retry.', evidenceIds: [] };
+    const sends = await Promise.all([repository.sendMessage(message), repository.sendMessage(message)]);
+    assert.deepEqual(sends[0], sends[1]);
+    await assert.rejects(repository.sendMessage({ ...message, body: 'Conflicting retry.' }), { code: 'IDEMPOTENCY_CONFLICT' });
+    const first = (await repository.receiveInbox(message.recipientIdentity, message.coordinationScope, 1, 60))[0]!;
+    await db.collection('cp_coordination_messages').updateOne({ messageId: message.messageId }, {
+      $set: { leaseExpiresAt: '2000-01-01T00:00:00.000Z' },
+    });
+    await assert.rejects(repository.acknowledge(message.recipientIdentity, message.coordinationScope,
+      message.messageId, first.leaseGeneration, true), { code: 'LEASE_LOST' });
+    const second = (await repository.receiveInbox(message.recipientIdentity, message.coordinationScope, 1, 60))[0]!;
+    assert.equal(second.leaseGeneration, first.leaseGeneration + 1);
+    await assert.rejects(repository.acknowledge(message.recipientIdentity, message.coordinationScope,
+      message.messageId, first.leaseGeneration, true), { code: 'LEASE_LOST' });
+    const result = await repository.acknowledge(message.recipientIdentity, message.coordinationScope,
+      message.messageId, second.leaseGeneration, true);
+    assert.deepEqual(await repository.acknowledge(message.recipientIdentity, message.coordinationScope,
+      message.messageId, second.leaseGeneration, true), result);
+    assert.deepEqual(await repository.receiveInbox(message.recipientIdentity, message.coordinationScope, 1, 60), []);
+  });
+
+  it('keeps colliding surface names and project scopes separate in Mongo', async () => {
+    const db = cleanup!.client.db(database);
+    const repository = new MongoCoordinationRepository(db, scope);
+    const group = 'project:surface-isolation';
+    await repository.registerAgent({ identity: 'agent:a', coordinationScope: group, metadata: {} });
+    const first = { coordinationScope: group, ownerIdentity: 'agent:a', surfaceName: 'work', kind: 'status', content: 'first' };
+    const second = { ...first, ownerIdentity: 'agent', surfaceName: 'a:work', content: 'second' };
+    await repository.publishSurface(first);
+    await repository.publishSurface(second);
+    assert.deepEqual((await repository.getContext('agent:a', group))?.surfaces.map(item => item.content).sort(), ['first', 'second']);
+    const other = new MongoCoordinationRepository(db, { ...scope, projectId: 'other-project' } as ProjectScope);
+    assert.equal(await other.getContext('agent:a', group), null);
+    await repository.registerDependency({ coordinationScope: group, dependencyId: 'owned-dependency',
+      ownerIdentity: 'agent:a', dependsOn: 'peer', description: 'Original owner.' });
+    await assert.rejects(repository.registerDependency({ coordinationScope: group, dependencyId: 'owned-dependency',
+      ownerIdentity: 'agent', dependsOn: 'peer', description: 'Attempted takeover.' }), { code: 'CONFLICT' });
+  });
 }

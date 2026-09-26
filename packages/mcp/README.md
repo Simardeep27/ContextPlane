@@ -1,20 +1,35 @@
 # ContextPlane MCP
 
-Streamable HTTP MCP at `https://context-plane-brain.buddhsen-work.workers.dev/mcp`.
-This replaces the neighboring Python server on the existing worker. Old Python
-tool names are no longer exposed. The existing Atlas data is not migrated or deleted.
+Streamable HTTP MCP with a stdio client bridge. The configured worker endpoint is
+`https://context-plane-brain.buddhsen-work.workers.dev/mcp`. Source capability and
+live deployment status are recorded separately in [STATUS.md](STATUS.md).
 
 ## Current capabilities
 
 - `get_project_context`: returns the stored project projection, or `null` if none exists.
 - `read_operation`: reads a scoped operation receipt by `operationKey`.
+- `register_agent`, `register_dependency`, `get_context`, `publish_surface`,
+  `send_message`, `receive_inbox`, `acknowledge`: persist project coordination.
 
-Schemas come from `@context-plane/contracts`; reads use `@context-plane/persistence`.
-The bearer token represents one shared project reader, not an individual agent.
-The server fixes scope to `org_demo` / `project_context_plane` in database
-`context_plane_poc`. Callers cannot select another scope or identity.
-No fixtures are inserted at startup. Write handlers, per-agent authorization,
-automatic activity capture, and complete Codex/Claude workflows remain pending.
+Product read schemas come from `@context-plane/contracts`; reads use
+`@context-plane/persistence`. Coordination uses separate `cp_coordination_*`
+collections with scoped keys, optimistic revisions, message idempotency, and
+expiring inbox leases. An acknowledgement needs the current lease generation;
+identical retries return the recorded outcome. Failed acknowledgements return
+messages to the queue. Lease expiry makes unfinished messages eligible again.
+
+The bearer token authorizes one **trusted project team**. Coordination identity
+is caller-selected: any token holder can act as any identity in that project,
+including leasing its inbox. Agent registration does not authenticate ownership.
+Do not distribute this token across trust boundaries. Server configuration fixes
+organization, project, and coordination scope; callers cannot override them.
+Worker defaults are `org_demo` / `project_context_plane`, coordination scope
+`project:context-plane`, database `context_plane_poc`.
+
+No fixtures are inserted at startup. Coordination writes do not execute or
+authorize the gateway's check/apply commands or update its event ledger. The API
+demo uses a different project scope. Per-agent authorization, automatic activity
+capture, and complete Codex/Claude workflows remain pending.
 Add implemented handlers through the domain registry and principal allowlist;
 registering a schema alone does not expose a working tool.
 
@@ -57,13 +72,39 @@ npm run build
 npm run typecheck
 npm test
 npm run deploy:check -w @context-plane/mcp-worker
-node --env-file=/absolute/path/to/private.env packages/mcp/dist/smoke.js
 ```
 
-The HTTP tests use an in-memory repository and a real loopback MCP connection,
-including the stdio bridge. The hosted smoke test checks authentication, Atlas
-readiness, tool discovery, both reads, reconnects, and scope-override rejection.
-It writes no records. Local tests require permission to listen on loopback.
+For local startup, inject `MONGODB_URI` and a `CONTEXT_PLANE_API_TOKEN` of at least
+16 characters through the existing runtime secret mechanism. Do not put secret
+values in command arguments, source, logs, or chat. Use an isolated Mongo database:
+
+```sh
+HOST=127.0.0.1 PORT=8010 MONGODB_DATABASE=cp_mcp_local_testing \
+CONTEXT_PLANE_ORG_ID=org_local CONTEXT_PLANE_PROJECT_ID=project_local \
+CONTEXT_PLANE_COORDINATION_SCOPE=project:context-plane \
+npm start -w @context-plane/mcp
+```
+
+The smoke client needs the same injected token. It checks readiness, exactly
+nine tools, product reads, coordination scope rejection, and two HTTP connections:
+
+```sh
+CONTEXT_PLANE_MCP_URL=http://127.0.0.1:8010/mcp \
+node packages/mcp/dist/smoke.js
+```
+
+This default smoke writes no records. To verify all seven coordination actions,
+set `CONTEXT_PLANE_SMOKE_WRITES=1` as well. Write mode creates UUID-named synthetic
+agents, dependency, surface, and message records in the configured database; it
+checks send/ack replay and retained context after reconnect. It leaves those
+records for inspection. Set `CONTEXT_PLANE_COORDINATION_SCOPE` if using a custom
+scope. `MCP_BASE_URL` remains supported as a smoke-only endpoint alias.
+
+Normal tests use an in-memory repository, real loopback HTTP, and restarted stdio
+bridges, plus simulated Mongo write races. The opt-in Mongo suite requires
+`CONTEXT_PLANE_ATLAS_TESTS=1` and an injected URI; it creates and removes only a
+unique `cp_coordination_test_<UUID>` database. It also works against an isolated
+local Mongo server. Local tests require permission to listen on loopback.
 The MCP package disables `exactOptionalPropertyTypes` to accommodate SDK v1
 transport callback types; other strict TypeScript checks remain enabled.
 
@@ -81,10 +122,14 @@ npm run deploy -w @context-plane/mcp-worker
 ```
 
 This deploys with `--keep-vars`; declared database/scope vars are updated.
-Authenticated `/readyz` pings Atlas. Initialization and tool listing can succeed
-while Atlas is unavailable; reads then return sanitized errors. Requests/results
+Authenticated `/readyz` pings Mongo and initializes coordination indexes. MCP
+initialization and tool listing can succeed while Mongo is unavailable; data
+operations then return sanitized errors. Requests/results
 are bounded, browser Origins rejected, and bearer comparison uses constant-time
-comparison. The service does not modify Atlas users, indexes, or network rules.
+comparison. The service creates coordination indexes; it does not modify Atlas
+users or network rules. Context reads return at most 100 dependencies/surfaces
+and fail closed if their serialized result exceeds the response budget. Inbox
+batches are bounded before return; remaining messages stay retryable.
 Atlas access-list expiry can affect later readiness even after a successful deploy.
 
 Before rollback, inspect both the Worker version and container application image:

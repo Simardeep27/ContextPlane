@@ -11,6 +11,22 @@ npm run demo:e2e
 
 This builds all packages, starts an authenticated loopback HTTP worker, connects two scripted agents, executes the migration, kills the worker after its filesystem publication, restarts it, and verifies recovery without a duplicate publication. It writes a sanitized evidence manifest under `.artifacts/e2e/<run>/manifest.json`. File mode uses a test-only single-process store through the real persistence adapter. It does not establish MongoDB connectivity or MongoDB durability.
 
+To verify the same workflow against a local Mongo replica set `rs0` already
+listening on `127.0.0.1:27027`, run:
+
+```sh
+npm run build
+node packages/e2e/dist/run.js --mongo-local
+```
+
+Local mode fixes the URI to `mongodb://127.0.0.1:27027/?directConnection=true&replicaSet=rs0`
+and the database to `context_plane_e2e_local` in the worker itself. It ignores
+`MONGODB_URI` and Keychain, retains a fresh project/run and runner directory, and
+records `mode: "mongo-local"` plus that database in the manifest. It creates
+indexes and retains this run's records for inspection. It does not contact Atlas.
+Do not combine `--mongo-local` and `--atlas`; the existing Atlas host guard remains
+required for Atlas runs.
+
 For the live database path, use the existing team database user through the resource-config setup. A new login is not required. Verify that it may access the isolated test database before running writes. Store the complete driver URI using the hidden Terminal prompt, never chat:
 
 ```sh

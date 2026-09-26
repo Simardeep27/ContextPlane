@@ -10,7 +10,7 @@ import type { ProjectScope } from '@context-plane/contracts';
 import { blockedResumedCompletedEvents, blockedResumedCompletedProjections } from '@context-plane/contracts/fixtures';
 import { DurablePersistenceAdapter, MemoryStorage } from '@context-plane/persistence';
 import { createApp } from '../src/app.js';
-import { implementedTools, readHandlers } from '../src/domain.js';
+import { readTools, readHandlers } from '../src/domain.js';
 import { connectRemote, endpoint } from '../src/client.js';
 
 const token = 'fixture-token-no-production-access';
@@ -20,7 +20,7 @@ let listener: HttpServer; let url: URL; let ready = true; let storageFailure = f
 before(async () => {
   for (const event of blockedResumedCompletedEvents) await repository.appendEvent(event);
   await repository.saveProjection(blockedResumedCompletedProjections[2], 0);
-  const app = createApp({ token, principal: { scope, identity: 'fixture-reader', allowedTools: implementedTools },
+  const app = createApp({ token, principal: { scope, coordinationScope: 'project:context-plane', identity: 'fixture-reader', allowedTools: readTools },
     handlers: readHandlers(async () => { if (storageFailure) throw new Error('secret-connection-details'); return repository; }),
     ready: async () => { if (!ready) throw new Error('secret-connection-details'); },
   });
@@ -39,7 +39,7 @@ it('bridges stdio discovery and reads to the HTTP server', async () => {
   });
   try {
     await client.connect(transport);
-    assert.deepEqual((await client.listTools()).tools.map(tool => tool.name), [...implementedTools]);
+    assert.deepEqual((await client.listTools()).tools.map(tool => tool.name), [...readTools]);
     const result = await client.callTool({ name: 'get_project_context', arguments: {} });
     assert.ok(!result.isError);
   } finally { await client.close(); }
@@ -62,7 +62,7 @@ it('rejects untrusted Host and Origin headers', async () => {
 });
 it('discovers only implemented contract tools and reads actual stored projection', async () => withClient(async client => {
   const tools = (await client.listTools()).tools;
-  assert.deepEqual(tools.map(tool => tool.name), [...implementedTools]);
+  assert.deepEqual(tools.map(tool => tool.name), [...readTools]);
   assert.ok(tools.every(tool => tool.annotations?.readOnlyHint));
   const result = await client.callTool({ name: 'get_project_context', arguments: {} });
   assert.ok(!result.isError);

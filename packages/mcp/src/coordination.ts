@@ -164,8 +164,11 @@ export class MongoCoordinationRepository implements CoordinationRepository {
     if (existing && existing.ownerIdentity === input.ownerIdentity && existing.dependsOn === input.dependsOn &&
       existing.description === input.description) return stripScope(existing);
     const value: CoordinationDependency = { ...input, revision: (existing?.revision ?? 0) + 1, updatedAt: new Date().toISOString() };
-    const result = await collection.replaceOne({ _id: documentId, ...(existing ? { revision: existing.revision } : {}) },
-      this.scoped<DependencyDocument>(value, documentId), { upsert: !existing });
+    const result = await collection.replaceOne({ _id: documentId, revision: existing?.revision ?? { $exists: false } },
+      this.scoped<DependencyDocument>(value, documentId), { upsert: !existing }).catch(error => {
+      if (error instanceof MongoServerError && error.code === 11000) throw new CoordinationError('CONFLICT');
+      throw error;
+    });
     if (!result.acknowledged || result.matchedCount + result.upsertedCount !== 1) throw new CoordinationError('CONFLICT');
     return value;
   }
@@ -198,8 +201,11 @@ export class MongoCoordinationRepository implements CoordinationRepository {
     const value: CoordinationSurface = { ...input, contentHash, revision: (existing?.revision ?? 0) + 1,
       updatedAt: new Date().toISOString() };
     const writeId = existing?._id ?? documentId;
-    const result = await collection.replaceOne({ _id: writeId, ...(existing ? { revision: existing.revision } : {}) },
-      this.scoped<SurfaceDocument>(value, writeId), { upsert: !existing });
+    const result = await collection.replaceOne({ _id: writeId, revision: existing?.revision ?? { $exists: false } },
+      this.scoped<SurfaceDocument>(value, writeId), { upsert: !existing }).catch(error => {
+      if (error instanceof MongoServerError && error.code === 11000) throw new CoordinationError('CONFLICT');
+      throw error;
+    });
     if (!result.acknowledged || result.matchedCount + result.upsertedCount !== 1) throw new CoordinationError('CONFLICT');
     return value;
   }
@@ -245,7 +251,12 @@ export class MongoCoordinationRepository implements CoordinationRepository {
       const message = await collection.findOneAndUpdate(filter, { $set: { status: 'leased', leaseExpiresAt: expiresAt,
         updatedAt: now.toISOString() }, $inc: { leaseGeneration: 1 } }, { sort: { createdAt: 1 }, returnDocument: 'after' });
       if (!message) break;
-      claimed.push(stripScope(message));
+      const next = stripScope(message);
+      if (Buffer.byteLength(JSON.stringify({ messages: [...claimed, next] })) > 120 * 1024) {
+        await this.acknowledge(identity, coordinationScope, next.messageId, next.leaseGeneration, false);
+        break;
+      }
+      claimed.push(next);
     }
     return claimed;
   }
@@ -343,6 +354,7 @@ export class MemoryCoordinationRepository implements CoordinationRepository {
     for (const [key, message] of candidates) {
       const value: CoordinationMessage = { ...message, status: 'leased', leaseGeneration: message.leaseGeneration + 1,
         leaseExpiresAt: new Date(now.getTime() + leaseSeconds * 1000).toISOString(), updatedAt: now.toISOString() };
+      if (Buffer.byteLength(JSON.stringify({ messages: [...claimed, value] })) > 120 * 1024) break;
       this.messages.set(key, structuredClone(value)); claimed.push(value);
     }
     return structuredClone(claimed);
