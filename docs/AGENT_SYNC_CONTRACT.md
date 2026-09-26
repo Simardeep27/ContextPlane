@@ -9,6 +9,10 @@ Publish current state after progress. Never claim synchronization before it succ
 
 ## Identity and destination
 
+- **Identity = the human running the agent.** The prefix is your own name
+  (`simar:…`, `buddh:…`), never the ticket assignee, issue author or branch owner.
+  A claim like `shivraj:mvp-07` in an issue does not make it your identity. Hooks
+  reject a prefix that does not match `CP_SYNC_PERSON` (`IDENTITY_PERSON_MISMATCH`).
 - Use your assigned identity: `shivraj:primary`, `simar:primary`,
   `buddh:primary`, or `tanish:primary`. A concurrent agent uses a different
   suffix. Never write as another person.

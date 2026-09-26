@@ -64,7 +64,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const safe = new Set(['OUTBOX_FULL', 'OUTBOX_BUSY_OR_INTERRUPTED', 'SURFACE_WRITER_CONFLICT', 'SURFACE_READBACK_FAILED',
       'HOOK_INPUT_TOO_LARGE', 'LOCK_OWNER_ALIVE', 'LOCK_OWNER_UNKNOWN', 'INVALID_TASK_REFERENCE', 'INVALID_IDENTITY',
       'INVALID_PERSON', 'INVALID_INSTANCE', 'INVALID_SESSION', 'UNSAFE_OUTBOX', 'REPOSITORY_REQUIRED', 'MCP_UNAVAILABLE',
-      'MISSING_TOKEN', 'INVALID_RECIPIENT']);
+      'MISSING_TOKEN', 'INVALID_RECIPIENT', 'IDENTITY_PERSON_MISMATCH']);
     console.error(`ContextPlane UNSYNCHRONIZED: ${safe.has(error.message) ? error.message : 'CAPTURE_OR_DELIVERY_FAILED'}. Inspect status; recover interrupted locks with all clients stopped, then flush. No verified task outcome claimed.`);
     // A hook must never fail the user's session: report on stderr, exit 0.
     process.exitCode = process.argv[2] === 'hook' ? 0 : 1;

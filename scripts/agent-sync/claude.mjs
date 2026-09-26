@@ -22,6 +22,11 @@ export function observation(input) {
 }
 const people = ['Shivraj', 'Simar', 'Buddhsen', 'Tanish'];
 const identityPattern = /^[a-z][a-z0-9-]{0,31}:[a-z0-9:-]{1,60}$/;
+// An identity's prefix names the human running the agent, never a ticket assignee.
+const prefixes = { Shivraj: ['shivraj'], Simar: ['simar'], Buddhsen: ['buddhsen', 'buddh'], Tanish: ['tanish'] };
+export function identityMatchesPerson(identity, person) {
+  return (prefixes[person] ?? []).includes(String(identity).split(':')[0]);
+}
 // Commit authors in this repository's history; matched on git user.name/user.email.
 const authors = [[/shivraj|bhatti/i, 'Shivraj'], [/simardeep/i, 'Simar'], [/buddhsen/i, 'Buddhsen'], [/tanish/i, 'Tanish']];
 export const DEFAULT_TASK = 'https://github.com/Simardeep27/ContextPlane/issues/27';
@@ -60,6 +65,7 @@ export function configuration(env, sessionId) {
   if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/issues\/[1-9][0-9]*$/.test(env.CP_SYNC_TASK ?? '')) throw Error('INVALID_TASK_REFERENCE');
   const person = env.CP_SYNC_PERSON;
   if (!people.includes(person)) throw Error('INVALID_PERSON');
+  if (!identityMatchesPerson(env.CP_SYNC_IDENTITY, person)) throw Error('IDENTITY_PERSON_MISMATCH');
   const recipient = env.CP_SYNC_RECIPIENT || `${person.toLowerCase()}:primary`;
   if (!identityPattern.test(recipient)) throw Error('INVALID_RECIPIENT');
   const session = digest(sessionId).slice(0, 24);
