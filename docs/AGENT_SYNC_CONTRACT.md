@@ -58,6 +58,13 @@ Use `send_message` to `shivraj:primary` after a meaningful work boundary:
 | `checks_finished` | A check actually ran; include command, result and evidence |
 | `handoff` / `work_finished` | Work is handed off or reaches its stated completion condition |
 
+Finishing is required, not optional. When your task reaches its completion
+condition, send a `work_finished` event whose `summary` is one line stating what
+was delivered, then publish `work-status` with status `done` (or `stopped`).
+Include the `files` you touched so teammates can see what is now free. The HQ
+team view shows an agent as finished only from these signals; an agent that goes
+quiet without one shows as idle after 15 minutes.
+
 Report outcomes and useful context, not every token, keystroke or shell command.
 Never invent progress. Do not upload credentials, raw private conversations,
 hidden reasoning, unrelated personal work or secret-bearing logs.
