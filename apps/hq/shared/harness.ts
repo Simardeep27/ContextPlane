@@ -1,10 +1,10 @@
 // Deterministic "harness optimizer": rule-based reasoning over the projected ledger. No model calls.
-import { people, personOf, type Person, type TeamAgent, type TeamEvent, type TeamEventType, type TeamSnapshot } from './team.ts';
+import { people, personOf, type TeamAgent, type TeamEvent, type TeamEventType, type TeamSnapshot } from './team.ts';
 
 export const IDLE_MS = 15 * 60_000;
 export type ChipStatus = 'working' | 'blocked' | 'finished' | 'idle';
 export type AgentView = {
-  identity: string; suffix: string; person: Person | 'Other'; status: ChipStatus;
+  identity: string; suffix: string; person: string; status: ChipStatus;
   task: string | null; summary: string | null; files: string[]; updatedAt: string | null;
   lastEventType: TeamEventType | null; idleMinutes: number | null;
 };
@@ -15,8 +15,18 @@ export type OptimizerReport = {
   collisions: Collision[]; idleAgents: AgentView[]; suggestion: string;
 };
 
-const finishedEvents = new Set<TeamEventType>(['work_finished', 'handoff']);
 const finishedStates = new Set(['stopped', 'done', 'handed_off']);
+// Legacy agent-sync mapped every per-turn Claude/Codex Stop hook to work_finished/stopped.
+const turnStop = (v: string | null | undefined) => /\bturn stopped\b/i.test(v ?? '');
+/** Only an explicit work_finished (not a per-turn Stop), a handoff, or a session end counts as finished. */
+export function eventSignal(e: TeamEvent): ChipStatus | null {
+  if (e.waiting || e.type === 'work_finished' && turnStop(e.summary)) return 'idle';
+  return e.type === 'work_finished' || e.type === 'handoff' ? 'finished' : e.type === 'blocked' ? 'blocked' : null;
+}
+export function surfaceSignal(a: TeamAgent): ChipStatus | null {
+  if (a.status === 'idle' || a.status === 'stopped' && turnStop(a.currentTask)) return 'idle';
+  return finishedStates.has(a.status) ? 'finished' : a.status === 'blocked' ? 'blocked' : null;
+}
 const ms = (v: string | null) => v ? Date.parse(v) : NaN;
 
 export function suffixOf(identity: string) { const i = identity.indexOf(':'); return i < 0 ? identity : identity.slice(i + 1); }
@@ -28,17 +38,16 @@ export function latestByActor(events: TeamEvent[]) {
 }
 
 /** One agent's chip: the newest signal (ledger event or work-status surface) wins. */
-export function agentView(agent: TeamAgent | null, event: TeamEvent | undefined, now: number, identity = agent?.identity ?? event?.actor ?? ''): AgentView {
+export type PersonResolver = (identity: string) => string;
+export function agentView(agent: TeamAgent | null, event: TeamEvent | undefined, now: number, identity = agent?.identity ?? event?.actor ?? '', personFor: PersonResolver = personOf): AgentView {
   const surfaceAt = ms(agent?.reportedAt ?? null); const eventAt = ms(event?.occurredAt ?? null);
   const eventNewer = event !== undefined && (!Number.isFinite(surfaceAt) || eventAt >= surfaceAt);
   const updatedAt = eventNewer ? event!.occurredAt : agent?.reportedAt ?? null;
   const age = Number.isFinite(ms(updatedAt)) ? now - ms(updatedAt) : Infinity;
-  const signal = eventNewer ? event!.type : agent?.status ?? 'unknown';
-  const status: ChipStatus = finishedEvents.has(signal as TeamEventType) || finishedStates.has(signal) ? 'finished'
-    : signal === 'blocked' ? 'blocked'
-    : age > IDLE_MS ? 'idle' : 'working';
+  const signal = eventNewer ? eventSignal(event!) : agent ? surfaceSignal(agent) : null;
+  const status: ChipStatus = signal ?? (age > IDLE_MS ? 'idle' : 'working');
   const files = eventNewer && event!.files.length ? event!.files : agent?.files.length ? agent.files : event?.files ?? [];
-  return { identity, suffix: suffixOf(identity), person: agent?.person ?? personOf(identity),
+  return { identity, suffix: suffixOf(identity), person: personFor === personOf ? agent?.person ?? personOf(identity) : personFor(identity),
     status, task: agent?.task ?? event?.task ?? null,
     summary: eventNewer ? event!.summary ?? agent?.currentTask ?? null : agent?.currentTask ?? event?.summary ?? null,
     files, updatedAt, lastEventType: event?.type ?? null,
@@ -46,17 +55,17 @@ export function agentView(agent: TeamAgent | null, event: TeamEvent | undefined,
 }
 
 /** Every agent seen in surfaces or ledger events, as chips. */
-export function agentViews(snapshot: Pick<TeamSnapshot, 'agents' | 'events'>, now: number): AgentView[] {
+export function agentViews(snapshot: Pick<TeamSnapshot, 'agents' | 'events'>, now: number, personFor: PersonResolver = personOf): AgentView[] {
   const latest = latestByActor(snapshot.events);
-  const views = snapshot.agents.map(a => agentView(a, latest.get(a.identity), now));
+  const views = snapshot.agents.map(a => agentView(a, latest.get(a.identity), now, a.identity, personFor));
   const known = new Set(snapshot.agents.map(a => a.identity));
-  for (const [actor, e] of latest) if (!known.has(actor)) views.push(agentView(null, e, now, actor));
+  for (const [actor, e] of latest) if (!known.has(actor)) views.push(agentView(null, e, now, actor, personFor));
   return views.sort((a, b) => a.identity.localeCompare(b.identity));
 }
 
-export type PersonGroup = { person: Person | 'Other'; agents: AgentView[] };
-export function groupByPerson(views: AgentView[]): PersonGroup[] {
-  const groups: PersonGroup[] = people.map(person => ({ person, agents: views.filter(v => v.person === person) }));
+export type PersonGroup = { person: string; agents: AgentView[] };
+export function groupByPerson(views: AgentView[], order: readonly string[] = people): PersonGroup[] {
+  const groups: PersonGroup[] = order.map(person => ({ person, agents: views.filter(v => v.person === person) }));
   const other = views.filter(v => v.person === 'Other');
   return other.length ? [...groups, { person: 'Other', agents: other }] : groups;
 }
@@ -82,8 +91,8 @@ export function collisions(views: AgentView[]): Collision[] {
   return out;
 }
 
-export function optimize(snapshot: Pick<TeamSnapshot, 'agents' | 'events'>, now: number): OptimizerReport {
-  const views = agentViews(snapshot, now);
+export function optimize(snapshot: Pick<TeamSnapshot, 'agents' | 'events'>, now: number, personFor: PersonResolver = personOf): OptimizerReport {
+  const views = agentViews(snapshot, now, personFor);
   const count = (s: ChipStatus) => views.filter(v => v.status === s).length;
   const ledger = snapshot.events.length > 0;
   const times = ledger ? snapshot.events.map(e => ms(e.occurredAt)) : snapshot.agents.map(a => ms(a.reportedAt)).filter(Number.isFinite);

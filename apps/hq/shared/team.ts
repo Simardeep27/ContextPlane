@@ -2,7 +2,7 @@
 export const people = ['Shivraj', 'Simar', 'Buddh', 'Tanish'] as const;
 export type Person = typeof people[number];
 export type TeamAgent = {
-  identity: string; person: Person | 'Other'; instanceId: string | null;
+  identity: string; person: string; instanceId: string | null;
   task: string | null; currentTask: string | null; status: string;
   blockedOn: string[]; nextAction: string | null; files: string[]; evidence: string[];
   reportedAt: string | null; publishedAt: string | null; revision: number | null;
@@ -10,7 +10,7 @@ export type TeamAgent = {
 export const eventTypes = ['work_started','progress','decision','blocked','checks_finished','handoff','work_finished'] as const;
 export type TeamEventType = typeof eventTypes[number];
 /** Allowlisted ledger event: only these fields ever reach the browser. */
-export type TeamEvent = { type: TeamEventType; actor: string; task: string | null; summary: string | null; files: string[]; occurredAt: string };
+export type TeamEvent = { type: TeamEventType; actor: string; task: string | null; summary: string | null; files: string[]; occurredAt: string; waiting?: boolean };
 export type TeamSnapshot = { fetchedAt: string; agents: TeamAgent[]; events: TeamEvent[]; possiblyTruncated: boolean };
 const record = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const text = (v: unknown, max = 2000) => typeof v === 'string' && v.trim() ? v.slice(0, max) : null;
@@ -34,7 +34,7 @@ function projectEvent(raw: unknown): TeamEvent | null {
   const type = eventTypes.find(t => t === body.type); const occurredAt = date(body.occurredAt);
   const actor = text(body.actor, 256) ?? text(m.identity, 256) ?? text(m.sender, 256);
   if (!type || !occurredAt || !actor) return null;
-  return { type, actor, task: text(body.task, 500), summary: text(body.summary, 280), files: list(body.files), occurredAt };
+  return { type, actor, task: text(body.task, 500), summary: text(body.summary, 280), files: list(body.files), occurredAt, ...(body.waiting === true ? { waiting: true } : {}) };
 }
 export function projectTeam(value: unknown, now = new Date()): TeamSnapshot {
   const context = record(record(value).context);
@@ -48,7 +48,7 @@ export function projectTeam(value: unknown, now = new Date()): TeamSnapshot {
     const person = personOf(identity, text(c.person));
     const agent: TeamAgent = { identity, person, instanceId: text(c.instanceId, 256),
       task: text(c.task), currentTask: text(c.currentTask),
-      status: ['working','blocked','handed_off','done','stopped'].includes(String(c.status)) ? String(c.status) : 'unknown',
+      status: ['working','idle','blocked','handed_off','done','stopped'].includes(String(c.status)) ? String(c.status) : 'unknown',
       blockedOn: list(c.blockedOn), nextAction: text(c.nextAction), files: list(c.files), evidence: list(c.evidence),
       reportedAt: date(c.updatedAt), publishedAt: date(s.updatedAt), revision: Number.isSafeInteger(s.revision) ? s.revision as number : null };
     const prior = agents.get(identity);

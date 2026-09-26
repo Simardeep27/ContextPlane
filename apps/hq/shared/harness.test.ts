@@ -79,3 +79,28 @@ test('optimizer counts events and agents and produces a rule-based suggestion', 
   assert.equal(quiet.suggestion, 'simar:ui has been quiet 42m — check in or send work_finished');
   assert.equal(optimize({ agents: [], events: [] }, now.getTime()).suggestion, 'No active agents — pick up the next task');
 });
+
+test('per-turn Stop is idle/waiting, never finished; work_finished and SessionEnd still finish', () => {
+  const stopSurface = { status: 'idle', currentTask: 'Claude Code turn stopped; task outcome not verified', updatedAt: at(1) };
+  const views = Object.fromEntries(agentViews(projectTeam({ context: {
+    surfaces: [surface('simar:hook-a', stopSurface), surface('tanish:legacy', { status: 'stopped', currentTask: 'Codex turn stopped; task outcome not verified', updatedAt: at(1) }),
+      surface('buddhsen:end', { status: 'stopped', currentTask: 'Claude Code session ended; task outcome not verified', updatedAt: at(1) })],
+    messages: [
+      message('simar:hook-a', 'progress', 1, { summary: 'Claude Code turn stopped; task outcome not verified', waiting: true }),
+      message('shivraj:legacy', 'work_finished', 1, { summary: 'Claude Code turn stopped; task outcome not verified' }),
+      message('shivraj:done', 'work_finished', 1, { summary: 'Merged PR #39' }),
+      message('buddhsen:end', 'work_finished', 1, { summary: 'Claude Code session ended; task outcome not verified' }),
+    ] } }, now), now.getTime()).map(v => [v.identity, v.status]));
+  assert.deepEqual(views, { 'buddhsen:end': 'finished', 'shivraj:done': 'finished', 'shivraj:legacy': 'idle', 'simar:hook-a': 'idle', 'tanish:legacy': 'idle' });
+  const snap = projectTeam({ context: { surfaces: [], messages: [message('a:1', 'progress', 1, { waiting: true })] } }, now);
+  assert.equal(snap.events[0]?.waiting, true);
+});
+
+test('sample org fixture: 6 people, 2-4 agents each, collisions, finished, blocked and waiting', async () => {
+  const { sampleSnapshot, sampleOrder, samplePersonOf } = await import('./sample.ts');
+  const t = now.getTime(); const snap = sampleSnapshot(t);
+  const groups = groupByPerson(agentViews(snap, t, samplePersonOf), sampleOrder);
+  assert.equal(groups.length, 6); assert.ok(groups.every(g => g.agents.length >= 2 && g.agents.length <= 4));
+  const report = optimize(snap, t, samplePersonOf);
+  assert.ok(report.collisions.length >= 2); assert.equal(report.finished, 2); assert.equal(report.blocked, 1); assert.equal(report.idle, 1);
+});

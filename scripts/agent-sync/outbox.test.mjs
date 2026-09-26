@@ -131,3 +131,16 @@ test('inbox reads return leases for retry, never claim completed handoffs', asyn
   });
   assert.deepEqual(acknowledgements, [{ identity: cfg.identity, scope: cfg.scope, message_id: 'handoff', lease_generation: 3, success: false }]);
 });
+test('per-turn Stop reports idle/waiting, never finished; SessionEnd still finishes', async t => {
+  const box = setup(t); const remote = server(); await box.enqueue(start);
+  await box.enqueue({ kind: 'Stop', key: 'turn-1', summary: 'Claude Code turn stopped; task outcome not verified' });
+  await box.flush(remote.call);
+  assert.equal(remote.surface.content.status, 'idle'); assert.equal(remote.surface.content.nextAction, 'Waiting for the next prompt');
+  const stop = JSON.parse([...remote.messages.values()][1].body);
+  assert.equal(stop.type, 'progress'); assert.equal(stop.waiting, true);
+  await box.enqueue({ kind: 'PostToolUse', key: 'next-turn', summary: 'Working again' }); await box.flush(remote.call);
+  assert.equal(remote.surface.content.status, 'working');
+  await box.enqueue({ kind: 'SessionEnd', key: 'end', summary: 'Ended' }); await box.flush(remote.call);
+  assert.equal(remote.surface.content.status, 'stopped');
+  assert.equal(JSON.parse([...remote.messages.values()][3].body).type, 'work_finished');
+});
