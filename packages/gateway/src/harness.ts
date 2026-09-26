@@ -4,13 +4,14 @@ import type {
   OperationReceipt, PersistenceAdapter, PolicyHash, PolicyId, PolicyVersion, ProjectScope,
   RunId, StagedCandidate, ToolName, UserId,
 } from '@context-plane/contracts';
-import { roleToolAllowlists, toolNames } from '@context-plane/contracts';
+import { roleToolAllowlists, toolNames, toolDefinitions } from '@context-plane/contracts';
 import {
   inspectChange, authorizePublication, hashCheckResult, deriveCoordinationRule,
   evaluateCoordinationRule, applyCoordinationRule, type ChangeAcknowledgement,
 } from '@context-plane/core';
 import { snapshotCandidateHash, type ExecutionProof } from '@context-plane/runner';
 import { canonicalJson, sha256, mvp02Scenario, type ScenarioSnapshotId } from '@context-plane/scenario';
+import type { InferenceProvider, InferenceRequest, InferenceResult } from './openrouter.js';
 import { HarnessError, plain, requireThat, safeKey, sameToken, validateArgs } from './validation.js';
 
 export interface Credential {
@@ -37,6 +38,8 @@ export interface HarnessOptions {
   readonly controllerToken?: string;
   readonly crashAfterEffect?: (proof: ExecutionProof) => void | Promise<void>;
   readonly now?: () => Date;
+  /** Must be shorter than the configured persistence lease. */
+  readonly heartbeatMs?: number;
 }
 export interface Command {
   readonly token: string;
@@ -439,7 +442,80 @@ export function createHarness(options: HarnessOptions) {
           comparison: 'Static coordination gate is retained; no improvement over an equivalent static gate is claimed.' } }, 'succeeded');
     });
   }
-  return { execute, context, diagnoseFailure, learnFromFailure,
+  /** Model work uses the same lease, event ledger and atomic commit as domain commands. */
+  async function modelTurn(token: string, operationKey: string, task: string, provider: InferenceProvider): Promise<InferenceResult> {
+    const identity = principal(token); safeKey(operationKey);
+    requireThat(typeof task === 'string' && task.length > 0 && task.length <= 16000, 'INVALID_TASK', 400);
+    return serial(async () => {
+      const requestHash = sha256(canonicalJson({ scope, runId, agentId: identity.agentId, task, model: provider.model }));
+      const replay = await prior(operationKey, requestHash);
+      if (replay) return replay.result.inference as unknown as InferenceResult;
+      await fence();
+      const events = await history();
+      const pending = events.find(e => e.payload.operationKey === operationKey && e.payload.phase === 'started');
+      const current = await state();
+      // Deterministic context selection; no model may broaden its registered role.
+      const packet = await context(token);
+      const allowed = packet.availableTools.filter(t => roleToolAllowlists[identity.role].includes(t));
+      const request: InferenceRequest = pending
+        ? pending.payload.result.request as unknown as InferenceRequest
+        : { model: provider.model, task, context: { ...packet, availableTools: allowed,
+            identity: { ...packet.identity, allowedTools: allowed } },
+            history: events.filter(e => e.payload.principal?.agentId === identity.agentId &&
+              e.payload.phase === 'finished' && e.payload.tool !== 'model_turn').slice(-20)
+              .map(e => ({ tool: e.payload.tool, operationKey: e.payload.operationKey, result: e.payload.result })),
+            tools: allowed.map(t => toolDefinitions[t]) };
+      const payload = (phase: StoredPayload['phase'], result: Record<string, unknown>): StoredPayload => ({
+        operationKey, requestHash, principal: identity, tool: 'model_turn', phase, result, state: current,
+      });
+      if (!pending) await commit(payload('started', { request }), 'started');
+      // No blind repeat of an inference whose outcome was lost. Provider reconciliation
+      // returns a durably captured response or requires operator resolution.
+      let lost = false; let renewing = Promise.resolve();
+      const heartbeat = setInterval(() => {
+        renewing = renewing.then(async () => {
+          if (!lease || lost) return;
+          try {
+            const renewed = await options.persistence.renewLease(scope, lease);
+            if (renewed) lease = renewed; else lost = true;
+          } catch { lost = true; }
+        });
+      }, options.heartbeatMs ?? 1000);
+      try {
+        const inference = pending
+          ? await provider.reconcile(operationKey, request)
+          : await provider.complete(operationKey, request);
+        requireThat(!lost, 'LEASE_LOST');
+        requireThat(inference, 'INFERENCE_OUTCOME_UNKNOWN');
+        await commit(payload('finished', { inference }), 'succeeded');
+        return inference;
+      } finally { clearInterval(heartbeat); await renewing; }
+    });
+  }
+  async function executeModelTool(token: string, operationKey: string, name: string, args: Record<string, unknown>) {
+    const identity = principal(token); safeKey(operationKey);
+    const rejectedKey = `${operationKey}.rejected`; safeKey(rejectedKey);
+    const requestHash = sha256(canonicalJson({ scope, runId, agentId: identity.agentId, name, args }));
+    const rejected = await prior(rejectedKey, requestHash);
+    if (rejected) return rejected.result;
+    try {
+      requireThat(roleToolAllowlists[identity.role].includes(name as ToolName), 'TOOL_FORBIDDEN', 403);
+      return await execute({ token, tool: name as ToolName, operationKey, args, scope });
+    } catch (error) {
+      // A started external effect must be reconciled, never relabeled as a tool rejection.
+      if (!(error instanceof HarnessError) || ['LEASE_LOST', 'RUN_LEASED', 'REFERENCE_PROJECT_IN_USE', 'IDEMPOTENCY_CONFLICT'].includes(error.code) ||
+          await options.persistence.readReceipt(scope, operationKey as OperationKey)) throw error;
+      return serial(async () => {
+        const replay = await prior(rejectedKey, requestHash); if (replay) return replay.result;
+        await fence();
+        const result = { rejected: true, tool: name, error: error.code };
+        await commit({ operationKey: rejectedKey, requestHash, principal: identity, tool: 'tool_rejected',
+          phase: 'finished', result, state: await state() }, 'succeeded');
+        return result;
+      });
+    }
+  }
+  return { execute, context, modelTurn, executeModelTool, diagnoseFailure, learnFromFailure,
     controllerState: async (token: string) => { controller(token); return state(); } };
 }
 export type Harness = ReturnType<typeof createHarness>;

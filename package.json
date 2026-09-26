@@ -16,7 +16,8 @@
     "demo:atlas": "npm run build && node packages/e2e/dist/run.js --atlas",
     "demo:mongo-local": "npm run build && node packages/e2e/dist/run.js --mongo-local",
     "start:local": "node scripts/local-stack.mjs",
-    "smoke:local": "node scripts/local-stack.mjs --smoke"
+    "smoke:local": "node scripts/local-stack.mjs --smoke",
+    "worker:live": "npm run build && node packages/e2e/dist/live-worker.js"
   },
   "engines": {
     "node": ">=22.12"
