@@ -60,6 +60,7 @@ npm run typecheck
 - [Understand the units, authority and stores](docs/ONTOLOGY.md).
 - [Read the implemented domain/data model](docs/DOMAIN_MODEL.md).
 - [Connect a client through MCP](packages/mcp/README.md).
+- [Run an opt-in Claude client with automatic reporting and durable retries](docs/AGENT_AUTO_SYNC.md).
 - [Continue MVP-04 onward](docs/HANDOFF.md).
 
 HQ reads the MVP-03 API by default. Its optional simulation is visibly labelled.
