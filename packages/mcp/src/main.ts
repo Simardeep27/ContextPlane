@@ -65,7 +65,7 @@ async function main() {
     handlers: { ...readHandlers(async () => {
       repository ??= new DurablePersistenceAdapter((await connection()).storage);
       return repository;
-    }), ...coordinationHandlers(coordinationRepository, brainRepository, overlap),
+    }), ...coordinationHandlers(coordinationRepository, brainRepository, undefined, overlap),
     ...brainHandlers(coordinationRepository, brainRepository),
     ...overlapHandlers(coordinationRepository, overlap) },
     ready: async () => {

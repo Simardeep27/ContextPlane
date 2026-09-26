@@ -5,6 +5,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, typ
 import { toolDefinitions, type OperationKey, type PersistenceAdapter, type ProjectScope } from '@context-plane/contracts';
 import { PersistenceError } from '@context-plane/persistence';
 import { CoordinationError, type CoordinationRepository, type CoordinationToolName } from './coordination.js';
+import { isHeartbeatBody } from './heartbeats.js';
 import { brainDigest, brainKinds, BRAIN_BODY_MAX_BYTES, type BrainKind, type BrainRepository } from './brain.js';
 import { workFromMessage, workFromSurface, type OverlapService } from './overlap.js';
 
@@ -147,8 +148,11 @@ async function requireRegistered(repository: CoordinationRepository, identity: s
   if (!await repository.getContext(identity, scope)) throw new CoordinationError('NOT_FOUND');
 }
 
+/** Optional best-effort sink for heartbeat reports (issue #55); never fails send_message. */
+export type HeartbeatSink = (input: { principal: Principal; identity: string; coordinationScope: string; body: string }) => Promise<unknown>;
+
 export function coordinationHandlers(repository: () => Promise<CoordinationRepository>,
-  brain?: () => Promise<BrainRepository>, overlap?: OverlapService): DomainHandlers {
+  brain?: () => Promise<BrainRepository>, heartbeats?: HeartbeatSink, overlap?: OverlapService): DomainHandlers {
   return {
     register_agent: { readOnly: false, execute: async (principal, args) => {
       const scope = requireCoordinationScope(principal, args);
@@ -181,12 +185,16 @@ export function coordinationHandlers(repository: () => Promise<CoordinationRepos
       const scope = requireCoordinationScope(principal, args); const repo = await repository();
       await requireRegistered(repo, args.identity as string, scope);
       await requireRegistered(repo, args.recipient as string, scope);
-      const message = await repo.sendMessage({ messageId: args.message_id as string, coordinationScope: scope,
+      const sent = await repo.sendMessage({ messageId: args.message_id as string, coordinationScope: scope,
         senderIdentity: args.identity as string, recipientIdentity: args.recipient as string,
         body: args.body as string, evidenceIds: (args.evidence_ids ?? []) as string[] });
-      const work = workFromMessage(message.senderIdentity, scope, message.messageId, message.body);
+      if (heartbeats && isHeartbeatBody(args.body as string)) {
+        await heartbeats({ principal, identity: args.identity as string, coordinationScope: scope, body: args.body as string })
+          .catch(() => undefined);
+      }
+      const work = workFromMessage(sent.senderIdentity, scope, sent.messageId, sent.body);
       if (work && overlap) overlap.recordInBackground(work);
-      return message;
+      return sent;
     } },
     receive_inbox: { readOnly: false, execute: async (principal, args) => {
       const scope = requireCoordinationScope(principal, args); const repo = await repository();

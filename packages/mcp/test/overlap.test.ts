@@ -110,7 +110,7 @@ it('MCP check_overlap is read-only, and embedding failures never fail publish_su
   const start = (service: OverlapService) => {
     const app = createApp({ token, ready: async () => {},
       principal: { scope: projectScope, coordinationScope: scope, identity: 'test', allowedTools: implementedTools },
-      handlers: { ...coordinationHandlers(async () => coordination, undefined, service),
+      handlers: { ...coordinationHandlers(async () => coordination, undefined, undefined, service),
         ...overlapHandlers(async () => coordination, service) } });
     return app.listen(0, '127.0.0.1');
   };
