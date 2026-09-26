@@ -4,6 +4,7 @@ interface __BaseEnv_Env {
 	MONGODB_DATABASE: "context_plane_poc";
 	CONTEXT_PLANE_ORG_ID: "org_demo";
 	CONTEXT_PLANE_PROJECT_ID: "project_context_plane";
+	CONTEXT_PLANE_COORDINATION_SCOPE: "project:context-plane";
 	MONGODB_URI: string;
 	CONTEXT_PLANE_API_TOKEN: string;
 	BRAIN: DurableObjectNamespace<import("./src/index").BrainContainer>;
@@ -20,5 +21,5 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "MONGODB_DATABASE" | "CONTEXT_PLANE_ORG_ID" | "CONTEXT_PLANE_PROJECT_ID" | "MONGODB_URI" | "CONTEXT_PLANE_API_TOKEN">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "MONGODB_DATABASE" | "CONTEXT_PLANE_ORG_ID" | "CONTEXT_PLANE_PROJECT_ID" | "CONTEXT_PLANE_COORDINATION_SCOPE" | "MONGODB_URI" | "CONTEXT_PLANE_API_TOKEN">> {}
 }

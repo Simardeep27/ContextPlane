@@ -3,7 +3,7 @@ import { mkdtemp, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { AgentId, ProjectScope, RunId, ToolName, EventId } from '@context-plane/contracts';
+import type { AgentId, ProjectScope, RunId, ToolName, EventId, OperationKey, ProjectProjection } from '@context-plane/contracts';
 import { MemoryStorage, DurablePersistenceAdapter } from '@context-plane/persistence';
 import { ScenarioRunner, snapshotCandidateHash } from '@context-plane/runner';
 import { mvp02Scenario } from '@context-plane/scenario';
@@ -25,9 +25,9 @@ async function fixture() {
   const clock = () => new Date(millis);
   const storage = new MemoryStorage(clock); const runner = new ScenarioRunner(root);
   let count = 0;
-  const make = (extra: { crashAfterEffect?: () => void; runner?: GatewayRunner } = {}) => createHarness({
+  const make = (extra: { crashAfterEffect?: () => void; runner?: GatewayRunner; runId?: RunId } = {}) => createHarness({
     persistence: new DurablePersistenceAdapter(storage, { ownerId: `worker_${++count}`, leaseDurationMs: 100 }),
-    runner: extra.runner ?? runner, scope, runId: 'gateway_test_run' as RunId, credentials, controllerToken, now: clock,
+    runner: extra.runner ?? runner, scope, runId: extra.runId ?? 'gateway_test_run' as RunId, credentials, controllerToken, now: clock,
     ...(extra.crashAfterEffect ? { crashAfterEffect: extra.crashAfterEffect } : {}),
   });
   return { root, storage, runner, make, expire: () => { millis += 1000; }, cleanup: () => rm(root, { recursive: true, force: true }) };
@@ -57,7 +57,7 @@ test('server identity binding rejects spoofing, wrong scope, tools and prototype
   } finally { await f.cleanup(); }
 });
 
-test('reference writer refuses a project already used by the separate context API', async () => {
+test('reference reads and writes refuse a project already used by the separate context API', async () => {
   const f = await fixture();
   try {
     const persistence = new DurablePersistenceAdapter(f.storage);
@@ -65,9 +65,71 @@ test('reference writer refuses a project already used by the separate context AP
       eventId: 'api_publication_event' as EventId, type: 'dependency.published',
       actor: { kind: 'system', id: 'system', role: 'system' }, revision: 1,
       cursor: '000001', occurredAt: '2026-09-26T18:00:00Z', payload: { revision: 8 } });
-    await assert.rejects(command(f.make(), tokenA, 'report_progress', 'collision', { summary: 'x', evidenceIds: [] }), /REFERENCE_PROJECT_IN_USE/);
+    const h = f.make();
+    await assert.rejects(h.context(tokenA), /REFERENCE_PROJECT_IN_USE/);
+    await assert.rejects(h.controllerState(controllerToken), /REFERENCE_PROJECT_IN_USE/);
+    await assert.rejects(command(h, tokenA, 'get_project_context', 'read-context', {}), /REFERENCE_PROJECT_IN_USE/);
+    await assert.rejects(command(h, tokenA, 'report_progress', 'collision', { summary: 'x', evidenceIds: [] }), /REFERENCE_PROJECT_IN_USE/);
     assert.equal((await persistence.readEvents(scope)).length, 1);
-    assert.equal(await persistence.readReceipt(scope, 'collision' as import('@context-plane/contracts').OperationKey), null);
+    assert.equal(await persistence.readReceipt(scope, 'collision' as OperationKey), null);
+  } finally { await f.cleanup(); }
+});
+
+test('API projection initialization alone reserves the project without inventing reference context', async () => {
+  const f = await fixture();
+  try {
+    const persistence = new DurablePersistenceAdapter(f.storage);
+    const initialized: ProjectProjection = {
+      scope, revision: 1, eventCursor: '000000', policyEpoch: 1, runs: [], accessRequests: [], timeline: [],
+      dependencies: [{ dependencyId: mvp02Scenario.dependency.dependencyId, providerServiceId: 'orders', consumerServiceId: 'billing',
+        revision: 8, artifactHash: mvp02Scenario.devBPublication.artifact.artifactHash,
+        evidenceIds: [mvp02Scenario.devBPublication.evidence.evidenceId] }], addressedMessages: [],
+    };
+    await persistence.saveProjection(initialized, 0);
+    const h = f.make();
+    await assert.rejects(h.context(tokenA), /REFERENCE_PROJECT_IN_USE/);
+    await assert.rejects(command(h, tokenA, 'report_progress', 'projection-collision', { summary: 'x', evidenceIds: [] }), /REFERENCE_PROJECT_IN_USE/);
+    assert.deepEqual(await persistence.readProjection(scope), initialized);
+    assert.deepEqual(await persistence.readEvents(scope), []);
+    assert.equal(await persistence.readCheckpoint(scope, 'gateway_test_run' as RunId), null);
+    assert.equal(await persistence.readReceipt(scope, 'projection-collision' as OperationKey), null);
+  } finally { await f.cleanup(); }
+});
+
+test('reference projection includes shared fields and another run cannot adopt its project', async () => {
+  const f = await fixture();
+  try {
+    const persistence = new DurablePersistenceAdapter(f.storage); const h = f.make();
+    assert.equal((await h.context(tokenA)).dependencyRevision, 7);
+    await command(h, tokenA, 'report_progress', 'reference-progress', { summary: 'Reference run only', evidenceIds: [] });
+    const projection = await persistence.readProjection(scope);
+    assert.ok(projection);
+    assert.deepEqual(projection.dependencies, []);
+    assert.deepEqual(projection.addressedMessages, []);
+    const other = f.make({ runId: 'other_reference_run' as RunId });
+    await assert.rejects(other.context(tokenA), /REFERENCE_PROJECT_IN_USE/);
+    await assert.rejects(command(other, tokenA, 'report_progress', 'other-run', { summary: 'x', evidenceIds: [] }), /REFERENCE_PROJECT_IN_USE/);
+    assert.deepEqual(await persistence.readProjection(scope), projection);
+    assert.equal((await persistence.readEvents(scope)).length, 1);
+  } finally { await f.cleanup(); }
+});
+
+test('a later foreign event prevents stale reference context, operation reads and cached command replay', async () => {
+  const f = await fixture();
+  try {
+    const persistence = new DurablePersistenceAdapter(f.storage); const h = f.make();
+    const args = { summary: 'Reference run only', evidenceIds: [] };
+    await command(h, tokenA, 'report_progress', 'reference-progress', args);
+    const projection = await persistence.readProjection(scope);
+    await persistence.appendEvent({ scope, runId: 'api_publication' as RunId,
+      eventId: 'later_api_publication_event' as EventId, type: 'dependency.published',
+      actor: { kind: 'system', id: 'system', role: 'system' }, revision: 1,
+      cursor: '000002', occurredAt: '2026-09-26T18:00:01Z', payload: { revision: 8 } });
+    await assert.rejects(h.context(tokenA), /REFERENCE_PROJECT_IN_USE/);
+    await assert.rejects(command(h, tokenA, 'read_operation', 'read-progress', { operationKey: 'reference-progress' }), /REFERENCE_PROJECT_IN_USE/);
+    await assert.rejects(command(h, tokenA2, 'report_progress', 'reference-progress', args), /REFERENCE_PROJECT_IN_USE/);
+    assert.equal((await persistence.readEvents(scope)).length, 2);
+    assert.deepEqual(await persistence.readProjection(scope), projection);
   } finally { await f.cleanup(); }
 });
 

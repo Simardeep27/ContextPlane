@@ -107,13 +107,7 @@ export function createHarness(options: HarnessOptions) {
     requireThat(options.controllerToken && sameToken(options.controllerToken, token), 'UNAUTHORIZED', 401);
   }
   async function fence(): Promise<LeaseToken> {
-    // This reference writer has its own project. It cannot infer state from the
-    // separate MVP-03 API's events; reject mixing them instead of erasing data.
-    const projectHistory = await projectEvents();
-    const projection = await options.persistence.readProjection(scope);
-    requireThat(projectHistory.every(event => event.runId === runId && event.type.startsWith('harness.')) &&
-      (!projection || (projectHistory.length > 0 && projection.runs.every(run => run.runId === runId))),
-    'REFERENCE_PROJECT_IN_USE');
+    await history();
     if (lease) {
       const renewed = await options.persistence.renewLease(scope, lease);
       requireThat(renewed, 'LEASE_LOST'); lease = renewed;
@@ -133,7 +127,14 @@ export function createHarness(options: HarnessOptions) {
     return all;
   }
   async function history(): Promise<readonly EventEnvelope<string, StoredPayload>[]> {
-    return (await projectEvents()).filter(e => e.runId === runId && e.type.startsWith('harness.')) as EventEnvelope<string, StoredPayload>[];
+    // Reads and command replays must honor the same isolation boundary as writes.
+    // Filtering another writer's events would fabricate the default revision 7.
+    const projectHistory = await projectEvents();
+    const projection = await options.persistence.readProjection(scope);
+    requireThat(projectHistory.every(event => event.runId === runId && event.type.startsWith('harness.')) &&
+      (!projection || (projectHistory.length > 0 && projection.runs.length === 1 &&
+        projection.runs[0]!.runId === runId)), 'REFERENCE_PROJECT_IN_USE');
+    return projectHistory as readonly EventEnvelope<string, StoredPayload>[];
   }
   async function state(): Promise<HarnessState> {
     const events = await history();
