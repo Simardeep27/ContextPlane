@@ -9,9 +9,12 @@ import { MemoryCoordinationRepository } from '../../packages/mcp/dist/coordinati
 import { coordinationHandlers, coordinationTools } from '../../packages/mcp/dist/domain.js';
 import { connect } from './transport.mjs';
 import { Outbox } from './outbox.mjs';
-import { configuration, observation } from './claude.mjs';
+import * as claude from './claude.mjs';
+import * as codex from './codex.mjs';
 
-test('two independent MCP clients read reports and status after partial delivery and reconnect', async t => {
+for (const [client, { configuration, observation }] of [['Claude', claude], ['Codex', codex]]) {
+
+test(`${client}: two independent MCP clients read reports and status after partial delivery and reconnect`, async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-sync-http-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const repo = new MemoryCoordinationRepository();
   const principal = { scope: { orgId: 'org_isolated', projectId: 'project_isolated' },
@@ -45,3 +48,5 @@ test('two independent MCP clients read reports and status after partial delivery
   assert.equal(JSON.stringify(inbox).includes('secret'), false);
   assert.equal(box.read().pending.length, 0);
 });
+
+}

@@ -4,7 +4,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Outbox, privateDir, recoverLocks } from './outbox.mjs';
 import { configuration, observation } from './claude.mjs';
-import { connect } from './transport.mjs';
 export function rootFor(repo) {
   if (!repo || !path.isAbsolute(repo)) throw Error('REPOSITORY_REQUIRED');
   const artifacts = path.join(repo, '.artifacts');
@@ -22,7 +21,7 @@ export function boxes(root) {
 }
 export async function deliver(box) {
   let remote;
-  try { remote = await connect(); return await box.flush(remote.call); }
+  try { const { connect } = await import('./transport.mjs'); remote = await connect(); return await box.flush(remote.call); }
   finally { await remote?.close().catch(() => {}); }
 }
 async function main() {

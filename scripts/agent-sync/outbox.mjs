@@ -46,9 +46,9 @@ export function recoverLocks(dir) {
   }
 }
 export class Outbox {
-  constructor(root, config, budget = limits) {
+  constructor(root, config, budget = limits, lockWaitMs = 5000) {
     privateDir(root);
-    this.config = config; this.budget = budget;
+    this.config = config; this.budget = budget; this.lockWaitMs = lockWaitMs;
     this.dir = path.join(root, digest(config.identity));
     if (!fs.existsSync(this.dir)) {
       const allocation = path.join(root, 'allocation.lock');
@@ -78,7 +78,7 @@ export class Outbox {
       if (state.pending.length > this.budget.pending || state.seen.length > this.budget.seen ||
           Buffer.byteLength(JSON.stringify(state)) > this.budget.bytes) throw Error('OUTBOX_FULL');
       atomic(this.file, state); return result;
-    });
+    }, this.lockWaitMs);
   }
   async enqueue(observation) {
     return this.mutate(state => {
@@ -117,7 +117,7 @@ export class Outbox {
       const common = { identity: this.config.identity, scope: this.config.scope };
       let context = (await call('get_context', common)).context;
       if (!context) {
-        await call('register_agent', { ...common, metadata: { person: this.config.person, client: 'claude-code-hooks', baseIdentity: this.config.baseIdentity } });
+        await call('register_agent', { ...common, metadata: { person: this.config.person, client: this.config.client ?? 'claude-code-hooks', baseIdentity: this.config.baseIdentity } });
         context = (await call('get_context', common)).context;
       }
       const inbox = await call('receive_inbox', { ...common, limit: 5, lease_seconds: 30 });
