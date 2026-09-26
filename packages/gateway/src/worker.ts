@@ -17,7 +17,7 @@ export async function runAgent(options: {
   const turns: InferenceResult[] = [];
   for (let index = 0; index < maxTurns; index++) {
     const turnKey = `model-${sha256(`${options.jobKey}:${index}`).slice(7, 47)}`;
-    const turn = await options.harness.modelTurn(options.token, turnKey, options.task, options.provider);
+    const turn = await options.harness.modelTurn(options.token, turnKey, options.task, options.provider, options.jobKey);
     turns.push(turn);
     for (let callIndex = 0; callIndex < turn.toolCalls.length; callIndex++) {
       const call = turn.toolCalls[callIndex]!;

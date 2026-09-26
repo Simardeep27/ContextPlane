@@ -39,6 +39,11 @@ test('model receives scoped context and registered role tools; restart replays i
       recipientAgentId: credentials[0]!.agentId, body: 'own context', evidenceIds: [] } });
     const p = provider(async (_key, request) => {
       calls++;
+      if (calls === 2) {
+        assert.equal(request.history.length, 1);
+        assert.equal(request.history[0]!.inference.toolCalls[0]!.id, 'call-1');
+        assert.equal(request.history[0]!.outcomes[0]!.tool, 'report_progress');
+      }
       assert.equal((request.context as any).scope.projectId, scope.projectId);
       assert.equal((request.context as any).messages[0].body, 'own context');
       assert.ok(request.tools.some(t => t.name === 'report_progress'));
@@ -63,7 +68,8 @@ test('unknown tools and role overrides are rejected durably, never executed', as
   try {
     const h = f.make({ credentials: [{ ...credentials[0]!, allowedTools: ['get_project_context', 'acknowledge_change'] }] });
     await h.modelTurn(token, 'model', 'Check tools', provider(async (_key, request) => {
-      assert.deepEqual(request.tools.map(t => t.name), ['get_project_context']); return response();
+      assert.deepEqual(request.tools.map(t => t.name), ['get_project_context']);
+      assert.deepEqual((request.context as any).agentContext.allowedTools, ['get_project_context']); return response();
     }));
     const one = await h.executeModelTool(token, 'forbidden', 'acknowledge_change', {});
     assert.equal((one as any).error, 'TOOL_FORBIDDEN');
@@ -127,5 +133,26 @@ test('provider captures returned usage, strips reasoning, and does not retry unc
     await assert.rejects(failing.complete('unknown', request), /INFERENCE_OUTCOME_UNKNOWN/);
     assert.equal(calls, 2); assert.equal((await readdir(root)).length, 2);
     assert.throws(() => parseCompletion({ ...raw, usage: {} }, request.model, 1), /INVALID_INFERENCE_USAGE/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test('heartbeat retains lease during a slow model call and invalid arguments never enter domain state', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cp-heartbeat-'));
+  const storage = new MemoryStorage();
+  const persistence = new DurablePersistenceAdapter(storage, { leaseDurationMs: 150 });
+  const competitor = new DurablePersistenceAdapter(storage, { leaseDurationMs: 150 });
+  const h = createHarness({ scope, runId, credentials, runner: new ScenarioRunner(root), persistence, heartbeatMs: 15 });
+  try {
+    await h.modelTurn(token, 'slow-turn', 'Wait', provider(async () => {
+      await new Promise(resolve => setTimeout(resolve, 350));
+      assert.equal(await competitor.acquireLease(scope, runId), null);
+      return response();
+    }));
+    assert.equal((await persistence.readReceipt(scope, 'slow-turn' as OperationKey))!.status, 'succeeded');
+    const rejected = await h.executeModelTool(token, 'invalid-schema', 'report_progress', { summary: 'x', evidenceIds: [], agentId: 'spoof' });
+    assert.equal(rejected.error, 'INVALID_INPUT');
+    assert.equal(await persistence.readReceipt(scope, 'invalid-schema' as OperationKey), null);
+    assert.ok((await persistence.readEvents(scope)).some(e => e.type === 'harness.model_tool.finished'));
   } finally { await rm(root, { recursive: true, force: true }); }
 });

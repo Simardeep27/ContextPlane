@@ -91,7 +91,7 @@ try {
   const corrected = version('combined-candidate', 8);
   await job('coordinate', `Propose corrected candidate with summary "Coordinated Orders/Billing": ${JSON.stringify(corrected)}. Then send_agent_message to ${agentB}, body "Acknowledge this exact coordinated revision", evidenceIds []. Once proposal and addressed request exist, stop. The host will perform the Billing acknowledgement separately. Do not stage yet.`);
   await command(tokenB, 'acknowledge_change', 'b-ack', { candidateHash: corrected.candidateHash, acknowledgement: 'patched', evidenceIds: [] });
-  const finishTask = `Publish the already-proposed and acknowledged candidate ${JSON.stringify(corrected)}. In order: stage_change with artifactHashes ${JSON.stringify(mvp02Scenario.snapshots['combined-candidate'].map(a => a.artifactHash))}; run_checks with registeredCommands ["consumer-integration"]; apply_change with operationKey "host-assigned". Use recentResults to skip already completed steps. After publication is confirmed, stop. Never propose a new candidate or send more messages.`;
+  const finishTask = `Publish the already-proposed and acknowledged candidate ${JSON.stringify(corrected)}. In order: stage_change with artifactHashes ${JSON.stringify(mvp02Scenario.snapshots['combined-candidate'].map(a => a.artifactHash))}; run_checks with registeredCommands ["consumer-integration"]; apply_change with operationKey "host-assigned". Use previous tool responses to skip already completed steps. After publication is confirmed, stop. Never propose a new candidate or send more messages.`;
   await job('finish', finishTask, true);
   const before = await readdir(join(directory, 'runner', 'publications'));
   assert.equal(before.length, 2);

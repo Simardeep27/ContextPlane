@@ -509,27 +509,38 @@ export function createHarness(options: HarnessOptions) {
     });
   }
   /** Model work uses the same lease, event ledger and atomic commit as domain commands. */
-  async function modelTurn(token: string, operationKey: string, task: string, provider: InferenceProvider): Promise<InferenceResult> {
+  async function modelTurn(token: string, operationKey: string, task: string, provider: InferenceProvider, jobKey = operationKey): Promise<InferenceResult> {
     const identity = principal(token); safeKey(operationKey);
     requireThat(typeof task === 'string' && task.length > 0 && task.length <= 16000, 'INVALID_TASK', 400);
     return serial(async () => {
-      const requestHash = sha256(canonicalJson({ scope, runId, agentId: identity.agentId, task, model: provider.model }));
+      const requestHash = sha256(canonicalJson({ scope, runId, agentId: identity.agentId, task, model: provider.model, jobKey }));
       const replay = await prior(operationKey, requestHash);
       if (replay) return replay.result.inference as unknown as InferenceResult;
       await fence();
       const events = await history();
       const pending = events.find(e => e.payload.operationKey === operationKey && e.payload.phase === 'started');
       const current = await state();
+      if (!pending) requireThat(((await options.persistence.readCheckpoint(scope, runId))?.completedOperationKeys.length ?? 0) <= 83, 'RUN_BUDGET_EXCEEDED');
+      // Reserve capacity for one inference and up to eight command/outcome pairs.
       // Deterministic context selection; no model may broaden its registered role.
       const packet = await context(token);
       const allowed = packet.availableTools.filter(t => roleToolAllowlists[identity.role].includes(t));
       const request: InferenceRequest = pending
         ? pending.payload.result.request as unknown as InferenceRequest
-        : { model: provider.model, task, context: { ...packet, availableTools: allowed,
+        : { model: provider.model, task, context: { ...packet, mode: 'openrouter-worker', transport: 'in-process-domain-tools', availableTools: allowed,
+            agentContext: { ...packet.agentContext, task, allowedTools: allowed },
             identity: { ...packet.identity, allowedTools: allowed } },
             history: events.filter(e => e.payload.principal?.agentId === identity.agentId &&
-              e.payload.phase === 'finished' && e.payload.tool !== 'model_turn').slice(-20)
-              .map(e => ({ tool: e.payload.tool, operationKey: e.payload.operationKey, result: e.payload.result })),
+              e.payload.phase === 'finished' && e.payload.tool === 'model_turn' && e.payload.result.jobKey === jobKey)
+              .map(e => {
+                const inference = e.payload.result.inference as unknown as InferenceResult;
+                const outcomes = inference.toolCalls.map((_call, index) => {
+                  const outcome = events.find(o => o.payload.operationKey === `${e.payload.operationKey}-tool-${index}.outcome` && o.payload.phase === 'finished');
+                  requireThat(outcome, 'TOOL_OUTCOME_REQUIRED');
+                  return outcome.payload.result;
+                });
+                return { inference, outcomes };
+              }),
             tools: allowed.map(t => toolDefinitions[t]) };
       const payload = (phase: StoredPayload['phase'], result: Record<string, unknown>): StoredPayload => ({
         operationKey, requestHash, principal: identity, tool: 'model_turn', phase, result, state: current,
@@ -553,34 +564,38 @@ export function createHarness(options: HarnessOptions) {
           : await provider.complete(operationKey, request);
         requireThat(!lost, 'LEASE_LOST');
         requireThat(inference, 'INFERENCE_OUTCOME_UNKNOWN');
-        await commit(payload('finished', { inference }), 'succeeded');
+        await commit(payload('finished', { inference, jobKey }), 'succeeded');
         return inference;
       } finally { clearInterval(heartbeat); await renewing; }
     });
   }
   async function executeModelTool(token: string, operationKey: string, name: string, args: Record<string, unknown>) {
     const identity = principal(token); safeKey(operationKey);
-    const rejectedKey = `${operationKey}.rejected`; safeKey(rejectedKey);
+    const outcomeKey = `${operationKey}.outcome`; safeKey(outcomeKey);
     const requestHash = sha256(canonicalJson({ scope, runId, agentId: identity.agentId, name, args }));
-    const rejected = await prior(rejectedKey, requestHash);
-    if (rejected) return rejected.result;
+    const saved = await prior(outcomeKey, requestHash);
+    if (saved) return saved.result;
+    requireThat(((await options.persistence.readCheckpoint(scope, runId))?.completedOperationKeys.length ?? 0) <= 98, 'RUN_BUDGET_EXCEEDED');
+    let result: Record<string, unknown>;
     try {
       requireThat(roleToolAllowlists[identity.role].includes(name as ToolName), 'TOOL_FORBIDDEN', 403);
-      return await execute({ token, tool: name as ToolName, operationKey, args, scope });
+      const executed = await execute({ token, tool: name as ToolName, operationKey, args, scope });
+      result = { tool: name, outcome: executed };
     } catch (error) {
-      // A started external effect must be reconciled, never relabeled as a tool rejection.
+      // A started external effect must be reconciled, never relabeled as a rejection.
       if (!(error instanceof HarnessError) || ['LEASE_LOST', 'RUN_LEASED', 'REFERENCE_PROJECT_IN_USE', 'IDEMPOTENCY_CONFLICT'].includes(error.code) ||
           await options.persistence.readReceipt(scope, operationKey as OperationKey)) throw error;
-      return serial(async () => {
-        const replay = await prior(rejectedKey, requestHash); if (replay) return replay.result;
-        await fence();
-        const result = { rejected: true, tool: name, error: error.code };
-        await commit({ operationKey: rejectedKey, requestHash, principal: identity, tool: 'tool_rejected',
-          phase: 'finished', result, state: await state() }, 'succeeded');
-        return result;
-      });
+      result = { rejected: true, tool: name, error: error.code };
     }
+    return serial(async () => {
+      const replay = await prior(outcomeKey, requestHash); if (replay) return replay.result;
+      await fence();
+      await commit({ operationKey: outcomeKey, requestHash, principal: identity, tool: 'model_tool',
+        phase: 'finished', result, state: await state() }, 'succeeded');
+      return result;
+    });
   }
+
   return { execute, context, modelTurn, executeModelTool, diagnoseFailure, learnFromFailure, proposeRule, evaluateRule, activateRule,
     controllerState: async (token: string) => { controller(token); return state(); } };
 }
