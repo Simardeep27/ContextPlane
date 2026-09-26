@@ -1,0 +1,25 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "context-plane-brain",
+  "account_id": "2b240d6be9c2cd46892d911c0ba8bcfd",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "vars": {
+    "MONGODB_DATABASE": "context_plane_poc",
+    "CONTEXT_PLANE_ORG_ID": "org_demo",
+    "CONTEXT_PLANE_PROJECT_ID": "project_context_plane"
+  },
+  "containers": [{
+    "class_name": "BrainContainer",
+    "image": "../mcp/Dockerfile",
+    "image_build_context": "../..",
+    "max_instances": 1,
+    "instance_type": "lite"
+  }],
+  "durable_objects": { "bindings": [{ "name": "BRAIN", "class_name": "BrainContainer" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BrainContainer"] }],
+  "secrets": { "required": ["MONGODB_URI", "CONTEXT_PLANE_API_TOKEN"] }
+}
