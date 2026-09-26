@@ -48,8 +48,10 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
         <button type="button" role="tab" aria-selected={mode === "live"} className={mode === "live" ? "is-active" : ""} onClick={() => onChange("live")}>Live team</button>
         <button type="button" role="tab" aria-selected={mode === "simulation"} className={mode === "simulation" ? "is-active" : ""} onClick={() => onChange("simulation")}>Simulation</button>
       </div>
-      <a href="/team.html">Team view</a>
+      <a href="/team.html">Team</a>
+      <a href="/graph.html">Dependencies</a>
       <a href="/verified.html">Verified run</a>
+      <a href="/architecture.html">Architecture</a>
     </nav>
   );
 }

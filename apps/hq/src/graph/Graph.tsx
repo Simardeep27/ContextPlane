@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EvidenceRecord } from '../../shared/evidence.ts';
 import { buildTree, countNodes, graphFromEvidence, mergeInputs, visibleRows,
   type GraphChange, type GraphRun, type GraphSource, type TreeNode } from '../../shared/graph.ts';
+import { BrandMark } from '../ui/BrandMark.tsx';
 import { sampleGraph } from './sample.ts';
 import './graph.css';
 
@@ -65,8 +66,8 @@ export function Graph() {
 
   return <main className="graph-page">
     <header className="graph-top">
-      <a href="/" className="graph-brand"><span className="graph-brand-icon">C</span>Company Harness <span>/ Dependencies</span></a>
-      <nav className="graph-nav"><a href="/verified.html">Verified run</a><a href="/team.html">Team</a><a href="/index.html">Migration HQ</a></nav>
+      <a href="/" className="graph-brand"><BrandMark size={28} />Company Harness <span>/ Dependencies</span></a>
+      <nav className="graph-nav"><a href="/verified.html">Verified run</a><a href="/team.html">Team</a><a href="/index.html">Live HQ</a><a href="/architecture.html">Architecture</a></nav>
     </header>
 
     <section className="graph-intro">

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { BrandMark } from "./BrandMark.tsx";
 import type { Connection, Meta } from "../useEventStream.ts";
 
 const hints: Record<Meta["scenario"], string> = {
@@ -16,8 +17,8 @@ export function TopBar({ meta, connection, eventCount, starting, onStart, childr
   const pillLabel = isRuntime ? (meta.store.ok ? "Runtime · read only" : "Runtime offline") : "Simulation · memory";
   return (
     <header className="topbar panel">
-      <div className="brand"><div className="brand__mark" aria-hidden /><div>
-        <h1>Context Plane HQ</h1><p>{isRuntime ? "Recorded project state and evidence" : "Fictional agent coordination playback"}</p>
+      <div className="brand"><BrandMark size={34} /><div>
+        <h1>Company Harness</h1><p>{isRuntime ? "Recorded project state and evidence" : "Simulation · fictional agent coordination playback"}</p>
       </div></div>
       <p className="topbar__hint">{isRuntime
         ? "Read-only Context API view. Perform work through authenticated agent clients; this page does not impersonate Dev B."
