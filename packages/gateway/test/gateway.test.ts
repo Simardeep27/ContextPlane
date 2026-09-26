@@ -3,7 +3,7 @@ import { mkdtemp, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { AgentId, ProjectScope, RunId, ToolName } from '@context-plane/contracts';
+import type { AgentId, ProjectScope, RunId, ToolName, EventId } from '@context-plane/contracts';
 import { MemoryStorage, DurablePersistenceAdapter } from '@context-plane/persistence';
 import { ScenarioRunner, snapshotCandidateHash } from '@context-plane/runner';
 import { mvp02Scenario } from '@context-plane/scenario';
@@ -54,6 +54,20 @@ test('server identity binding rejects spoofing, wrong scope, tools and prototype
     await assert.rejects(command(h, tokenB, 'query_demo_orders', 'forbidden', { accessRequestId: 'x', queryName: 'x' }), /TOOL_FORBIDDEN/);
     await assert.rejects(command(h, tokenA, 'report_progress', 'prototype', JSON.parse('{"summary":"x","evidenceIds":[],"__proto__":{}}')), /INVALID_INPUT/);
     await assert.rejects(h.learnFromFailure(tokenA, 'learn'), /UNAUTHORIZED/);
+  } finally { await f.cleanup(); }
+});
+
+test('reference writer refuses a project already used by the separate context API', async () => {
+  const f = await fixture();
+  try {
+    const persistence = new DurablePersistenceAdapter(f.storage);
+    await persistence.appendEvent({ scope, runId: 'api_publication' as RunId,
+      eventId: 'api_publication_event' as EventId, type: 'dependency.published',
+      actor: { kind: 'system', id: 'system', role: 'system' }, revision: 1,
+      cursor: '000001', occurredAt: '2026-09-26T18:00:00Z', payload: { revision: 8 } });
+    await assert.rejects(command(f.make(), tokenA, 'report_progress', 'collision', { summary: 'x', evidenceIds: [] }), /REFERENCE_PROJECT_IN_USE/);
+    assert.equal((await persistence.readEvents(scope)).length, 1);
+    assert.equal(await persistence.readReceipt(scope, 'collision' as import('@context-plane/contracts').OperationKey), null);
   } finally { await f.cleanup(); }
 });
 

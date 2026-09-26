@@ -107,6 +107,13 @@ export function createHarness(options: HarnessOptions) {
     requireThat(options.controllerToken && sameToken(options.controllerToken, token), 'UNAUTHORIZED', 401);
   }
   async function fence(): Promise<LeaseToken> {
+    // This reference writer has its own project. It cannot infer state from the
+    // separate MVP-03 API's events; reject mixing them instead of erasing data.
+    const projectHistory = await projectEvents();
+    const projection = await options.persistence.readProjection(scope);
+    requireThat(projectHistory.every(event => event.runId === runId && event.type.startsWith('harness.')) &&
+      (!projection || (projectHistory.length > 0 && projection.runs.every(run => run.runId === runId))),
+    'REFERENCE_PROJECT_IN_USE');
     if (lease) {
       const renewed = await options.persistence.renewLease(scope, lease);
       requireThat(renewed, 'LEASE_LOST'); lease = renewed;
@@ -229,7 +236,9 @@ export function createHarness(options: HarnessOptions) {
         revision: (oldProjection?.revision ?? 0) + 1, eventCursor: event.cursor, policyEpoch: payload.state.policyEpoch,
         runs: [{ runId, ownerAgentId: devA, status: payload.state.publications.includes(snapshotCandidateHash('combined-candidate')) ? 'completed' : 'running',
           summary: 'Deterministic two-agent migration', blocker: null, checkpointRevision: revision, evidenceIds: resultEvidence }],
-        accessRequests: [], timeline: [], ...(version ? { candidateVersion: version } : {}) } },
+        accessRequests: [], dependencies: oldProjection?.dependencies ?? [],
+        addressedMessages: oldProjection?.addressedMessages ?? [], timeline: [],
+        ...(version ? { candidateVersion: version } : {}) } },
       ...(version ? { candidateVersion: version } : {}),
     });
     return { operationKey: payload.operationKey, tool: payload.tool, result: payload.result, eventId: event.eventId, receipt, replayed: false };
