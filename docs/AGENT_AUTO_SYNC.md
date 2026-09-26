@@ -6,6 +6,21 @@ It does not require the model to remember a reporting prompt. No global hook,
 background service, collection, model call or infrastructure is installed.
 Node 22.12+ and this repository's `npm ci` dependencies are required.
 
+## Out of the box (no launcher)
+
+Every Claude Code session opened in this repo (terminal or desktop) runs the
+hooks in the committed `.claude/settings.json` and gets the `context_plane` MCP
+server from `.mcp.json`, once you trust the project. One-time setup:
+
+1. `git pull && npm ci`.
+2. Export `CONTEXT_PLANE_API_TOKEN` from your secret store (e.g. Keychain) in your shell profile.
+3. `export CP_SYNC_PERSON=<Shivraj|Simar|Buddhsen|Tanish>` (else inferred from `git config user.name/email`).
+
+Identity defaults to `<person>:<branch-slug>`, the task to issue #27 (`CP_SYNC_TASK`
+overrides), and the recipient to `<person>:primary` (`CP_SYNC_RECIPIENT` overrides).
+With no token or person, hooks do nothing; failures print one stderr line and exit 0.
+Codex is not covered this way. The launcher below still works and takes precedence.
+
 ## Start a covered client
 
 Provide the existing project token through your private environment loader or
