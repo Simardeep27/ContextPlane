@@ -7,6 +7,7 @@ import { useReducedMotion } from "../ui/useReducedMotion.ts";
 import { stateColors } from "../scene/layout.ts";
 import { clock, relative, useNow } from "../ui/format.ts";
 import { LiveScene, statusColor } from "./LiveScene.tsx";
+import { CompanyEvaluator } from "../ui/CompanyEvaluator.tsx";
 import { useTeamPoll } from "./useTeamPoll.ts";
 
 const suggestions = ["What is everyone working on?", "Who is blocked?", "What has finished?"];
@@ -64,6 +65,7 @@ export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSim
 
   return (
     <div className="app app--live">
+      <CompanyEvaluator/>
       <div className="scene">
         <LiveScene views={poll.views} pulseAt={poll.pulseAt} fresh={poll.fresh} selected={selected} onSelect={selectAgent}
           still={still} shift={sceneShift(width, panel)} onOpenCompany={openCompany}
