@@ -8,9 +8,9 @@
   "workers_dev": true,
   "observability": { "enabled": true, "head_sampling_rate": 1 },
   "vars": {
-    "MONGODB_DATABASE": "context_plane_poc",
-    "CONTEXT_PLANE_ORG_ID": "org_demo",
-    "CONTEXT_PLANE_PROJECT_ID": "project_context_plane",
+    "MONGODB_DATABASE": "context_plane",
+    "CONTEXT_PLANE_ORG_ID": "org_synthetic_demo",
+    "CONTEXT_PLANE_PROJECT_ID": "project_mvp_02",
     "CONTEXT_PLANE_COORDINATION_SCOPE": "project:context-plane"
   },
   "containers": [{

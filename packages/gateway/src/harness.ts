@@ -1,17 +1,17 @@
 import type {
-  ActorRef, AgentId, AgentRole, ArtifactHash, CandidateHash, ChangeCheckVersion, CheckResult,
+  AgentContextPacket, MessageId, AgentId, AgentRole, ArtifactHash, CandidateHash, ChangeCheckVersion, CheckResult,
   CheckResultId, EventEnvelope, EventId, EvidenceId, EvidenceReference, LeaseToken, OperationKey,
-  OperationReceipt, PersistenceAdapter, PolicyHash, PolicyId, PolicyVersion, ProjectScope,
+  OperationReceipt, PersistenceAdapter, PolicyId, PolicyVersion, ProjectScope,
   RunId, StagedCandidate, ToolName, UserId,
 } from '@context-plane/contracts';
 import { roleToolAllowlists, toolNames, toolDefinitions } from '@context-plane/contracts';
 import {
-  inspectChange, authorizePublication, hashCheckResult, deriveCoordinationRule,
-  evaluateCoordinationRule, applyCoordinationRule, type ChangeAcknowledgement,
+  inspectChange, authorizePublication, hashCheckResult, applyCoordinationRule, type ChangeAcknowledgement,
 } from '@context-plane/core';
 import { snapshotCandidateHash, type ExecutionProof } from '@context-plane/runner';
 import { canonicalJson, sha256, mvp02Scenario, type ScenarioSnapshotId } from '@context-plane/scenario';
 import type { InferenceProvider, InferenceRequest, InferenceResult } from './openrouter.js';
+import { proposeCoordinationPolicy, evaluatePolicyCandidate, verifyPolicyActivation, type RuleProposalRecord, type RuleEvaluationRecord } from './policy-lifecycle.js';
 import { HarnessError, plain, requireThat, safeKey, sameToken, validateArgs } from './validation.js';
 
 export interface Credential {
@@ -240,6 +240,7 @@ export function createHarness(options: HarnessOptions) {
         revision: (oldProjection?.revision ?? 0) + 1, eventCursor: event.cursor, policyEpoch: payload.state.policyEpoch,
         runs: [{ runId, ownerAgentId: devA, status: payload.state.publications.includes(snapshotCandidateHash('combined-candidate')) ? 'completed' : 'running',
           summary: 'Deterministic two-agent migration', blocker: null, checkpointRevision: revision, evidenceIds: resultEvidence }],
+        activePolicy: payload.state.activePolicy,
         accessRequests: [], dependencies: oldProjection?.dependencies ?? [],
         addressedMessages: oldProjection?.addressedMessages ?? [], timeline: [],
         ...(version ? { candidateVersion: version } : {}) } },
@@ -258,7 +259,20 @@ export function createHarness(options: HarnessOptions) {
   }
   async function context(token: string) {
     const identity = principal(token); const current = await state();
-    return { scope, runId, identity, dependencyRevision: current.dependencyRevision, policyEpoch: current.policyEpoch,
+    const activePolicy = current.activePolicy?.targetAgentId === identity.agentId ? current.activePolicy : null;
+    const agentContext: AgentContextPacket = {
+      scope, role: identity.role, agentId: identity.agentId as AgentId,
+      task: identity.agentId === devA ? mvp02Scenario.staleCandidate.summary : 'Coordinate the Billing dependency.',
+      dependencyRevision: current.dependencyRevision, policyEpoch: current.policyEpoch, activePolicy,
+      addressedMessages: current.messages.filter(m => m.recipientAgentId === identity.agentId).map(m => ({
+        messageId: m.id as MessageId, senderAgentId: m.senderAgentId as AgentId, recipientAgentId: m.recipientAgentId as AgentId,
+        body: m.body, dependencyRevision: m.version?.dependencyRevision ?? current.dependencyRevision,
+        evidenceIds: m.evidenceIds as readonly EvidenceId[],
+      })),
+      evidenceIds: activePolicy?.evidence.map(e => e.evidenceId) ?? [],
+      allowedTools: identity.allowedTools.filter(t => implemented.includes(t)),
+    };
+    return { scope, runId, identity, agentContext, dependencyRevision: current.dependencyRevision, policyEpoch: current.policyEpoch,
       mode: 'deterministic-reference', transport: 'http-json-not-mcp',
       messages: current.messages.filter(m => m.senderAgentId === identity.agentId || m.recipientAgentId === identity.agentId),
       ownChanges: Object.values(current.proposals).filter(p => p.agentId === identity.agentId),
@@ -413,32 +427,84 @@ export function createHarness(options: HarnessOptions) {
         result: { diagnosis: current.diagnosis, evidenceIds: parts.flatMap(p => p.checkResult.evidence.map(e => e.evidenceId)) } }, 'succeeded');
     });
   }
-  async function learnFromFailure(token: string, operationKey: string): Promise<CommandResult> {
+  // Each lifecycle transition has its own immutable event and receipt. The wrapper
+  // below resumes these operations instead of folding evaluation into activation.
+  async function lifecycleRecord<T>(operationKey: string, tool: string): Promise<{ eventId: EventId; record: T }> {
+    const event = (await history()).find(e => e.payload.operationKey === operationKey && e.payload.phase === 'finished');
+    requireThat(event?.payload.tool === tool, 'POLICY_RECORD_NOT_FOUND');
+    const receipt = await options.persistence.readReceipt(scope, operationKey as OperationKey);
+    requireThat(receipt?.status === 'succeeded', 'INCONSISTENT_RECEIPT');
+    return { eventId: event.eventId, record: event.payload.result.record as T };
+  }
+  async function proposeRule(token: string, operationKey: string): Promise<CommandResult> {
     controller(token); safeKey(operationKey);
     return serial(async () => {
-      const requestHash = sha256(canonicalJson({ controller: 'learn', operationKey, scope, runId }));
+      const requestHash = sha256(canonicalJson({ controller: 'policy-propose', operationKey, scope, runId }));
       const replay = await prior(operationKey, requestHash); if (replay) return replay;
       await fence(); const current = await state(); requireThat(current.diagnosis, 'DIAGNOSIS_REQUIRED');
-      const rule = deriveCoordinationRule({ ...current.diagnosis, changeKind: 'unit_change', observedFailure: 'consumer-contract',
-        requiredAgentIds: [devB], changedArtifactPath: 'services/orders/src/quote.ts', consumerArtifactPaths: ['services/billing/src/invoice.ts'] });
-      requireThat(rule, 'NO_SUPPORTED_LESSON');
-      const evaluation = evaluateCoordinationRule(rule, mvp02Scenario.policyCases);
-      requireThat(evaluation.passed && evaluation.datasetHash === mvp02Scenario.policyDatasetHash, 'EVALUATION_REJECTED');
-      const sourceEvidence = Object.values(current.diagnosis).flatMap(p => p.checkResult.evidence);
-      const ruleHash = sha256(canonicalJson(rule)) as PolicyHash;
-      // More receipts for the same tested behavior are evidence, not a new policy version.
-      if (current.activePolicy?.policyHash === ruleHash && current.activePolicy.datasetHash === evaluation.datasetHash) {
-        return commit({ operationKey, requestHash, principal: null, tool: 'learn', phase: 'finished', state: current,
-          result: { alreadyActive: true, policy: current.activePolicy, evaluation, evidenceIds: sourceEvidence.map(e => e.evidenceId),
-            proposalMode: 'deterministic-rule-derivation' } }, 'succeeded');
+      const diagnosisEvent = [...await history()].reverse().find(e => e.payload.tool === 'diagnose' && e.payload.phase === 'finished');
+      requireThat(diagnosisEvent, 'DIAGNOSIS_REQUIRED');
+      const record = proposeCoordinationPolicy(scope, current.policyEpoch, current.diagnosis,
+        diagnosisEvent.eventId, time());
+      return commit({ operationKey, requestHash, principal: null, tool: 'policy_proposed', phase: 'finished', state: current,
+        result: { record, evidenceIds: record.candidate.evidence.map(e => e.evidenceId) } }, 'succeeded');
+    });
+  }
+  async function evaluateRule(token: string, operationKey: string, proposalOperationKey: string): Promise<CommandResult> {
+    controller(token); safeKey(operationKey); safeKey(proposalOperationKey);
+    return serial(async () => {
+      const requestHash = sha256(canonicalJson({ controller: 'policy-evaluate', proposalOperationKey, scope, runId }));
+      const replay = await prior(operationKey, requestHash); if (replay) return replay;
+      await fence(); const current = await state();
+      const proposal = await lifecycleRecord<RuleProposalRecord>(proposalOperationKey, 'policy_proposed');
+      const record = evaluatePolicyCandidate(proposal.record, proposal.eventId, time());
+      // Failed evaluations are evidence too. They never change the active pointer.
+      return commit({ operationKey, requestHash, principal: null, tool: 'policy_evaluated', phase: 'finished', state: current,
+        result: { record, evidenceIds: proposal.record.candidate.evidence.map(e => e.evidenceId) } }, 'succeeded');
+    });
+  }
+  async function activateRule(token: string, operationKey: string, evaluationOperationKey: string): Promise<CommandResult> {
+    controller(token); safeKey(operationKey); safeKey(evaluationOperationKey);
+    return serial(async () => {
+      const requestHash = sha256(canonicalJson({ controller: 'policy-activate', evaluationOperationKey, scope, runId }));
+      const replay = await prior(operationKey, requestHash); if (replay) return replay;
+      await fence(); const current = await state();
+      const evaluated = await lifecycleRecord<RuleEvaluationRecord>(evaluationOperationKey, 'policy_evaluated');
+      const proposalEvent = (await history()).find(e => e.eventId === evaluated.record.proposalEventId && e.payload.tool === 'policy_proposed');
+      requireThat(proposalEvent, 'POLICY_RECORD_NOT_FOUND');
+      const proposal = proposalEvent.payload.result.record as RuleProposalRecord;
+      verifyPolicyActivation(proposal, evaluated.record, proposalEvent.eventId);
+      const candidate = proposal.candidate;
+      const alreadyActive = current.activePolicy?.policyHash === candidate.policyHash &&
+        current.activePolicy.datasetHash === candidate.datasetHash && current.activePolicy.targetAgentId === candidate.targetAgentId;
+      let policy = current.activePolicy;
+      if (!alreadyActive) {
+        requireThat(current.policyEpoch === candidate.basePolicyEpoch, 'STALE_POLICY_EPOCH');
+        policy = { scope, policyId: `policy-${sha256(proposalEvent.eventId).slice(7, 39)}` as PolicyId,
+          targetAgentId: candidate.targetAgentId, policyHash: candidate.policyHash,
+          revision: (current.activePolicy?.revision ?? 0) + 1, policyEpoch: current.policyEpoch + 1,
+          datasetHash: candidate.datasetHash, rule: candidate.rule, evidence: candidate.evidence, promotedAt: time() };
+        current.policyEpoch = policy.policyEpoch; current.activePolicy = policy;
       }
-      const policy: PolicyVersion = { scope, policyId: `policy-${operationKey}` as PolicyId, targetAgentId: devA,
-        policyHash: ruleHash, revision: (current.activePolicy?.revision ?? 0) + 1,
-        policyEpoch: current.policyEpoch + 1, datasetHash: evaluation.datasetHash, rule: { ...rule },
-        evidence: sourceEvidence, promotedAt: time() };
-      current.policyEpoch = policy.policyEpoch; current.activePolicy = policy;
-      return commit({ operationKey, requestHash, principal: null, tool: 'learn', phase: 'finished', state: current,
-        result: { policy, evaluation, proposalMode: 'deterministic-rule-derivation', evidenceIds: sourceEvidence.map(e => e.evidenceId),
+      return commit({ operationKey, requestHash, principal: null, tool: 'policy_activated', phase: 'finished', state: current,
+        result: { policy, alreadyActive, proposalEventId: proposalEvent.eventId, evaluationEventId: evaluated.eventId,
+          evaluation: evaluated.record.evaluation, evidenceIds: candidate.evidence.map(e => e.evidenceId),
+          proposalMode: proposal.proposalMode } }, 'succeeded');
+    });
+  }
+  async function learnFromFailure(token: string, operationKey: string): Promise<CommandResult> {
+    controller(token); safeKey(operationKey);
+    const requestHash = sha256(canonicalJson({ controller: 'learn', operationKey, scope, runId }));
+    const replay = await prior(operationKey, requestHash); if (replay) return replay;
+    const key = (phase: string) => `policy-${phase}-${sha256(canonicalJson({ scope, runId, operationKey })).slice(7, 47)}`;
+    await proposeRule(token, key('propose'));
+    await evaluateRule(token, key('evaluate'), key('propose'));
+    const activated = await activateRule(token, key('activate'), key('evaluate'));
+    return serial(async () => {
+      const replay = await prior(operationKey, requestHash); if (replay) return replay;
+      await fence();
+      return commit({ operationKey, requestHash, principal: null, tool: 'learn', phase: 'finished', state: await state(),
+        result: { ...activated.result, activationEventId: activated.eventId,
           comparison: 'Static coordination gate is retained; no improvement over an equivalent static gate is claimed.' } }, 'succeeded');
     });
   }
@@ -515,7 +581,7 @@ export function createHarness(options: HarnessOptions) {
       });
     }
   }
-  return { execute, context, modelTurn, executeModelTool, diagnoseFailure, learnFromFailure,
+  return { execute, context, modelTurn, executeModelTool, diagnoseFailure, learnFromFailure, proposeRule, evaluateRule, activateRule,
     controllerState: async (token: string) => { controller(token); return state(); } };
 }
 export type Harness = ReturnType<typeof createHarness>;

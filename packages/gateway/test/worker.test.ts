@@ -114,7 +114,7 @@ test('provider captures returned usage, strips reasoning, and does not retry unc
       choices: [{ finish_reason: 'stop', message: { content: 'done', reasoning: 'PRIVATE_NOT_STORED' } }] };
     const p = new OpenRouterProvider({ apiKey: 'SECRET_NOT_STORED', model: request.model, journalDirectory: root,
       fetch: async (url, init) => { calls++; assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
-        const body = JSON.parse(init!.body as string); assert.equal(body.reasoning.exclude, true);
+        const body = JSON.parse(init!.body as string); assert.equal(body.provider.require_parameters, true); assert.equal(body.reasoning, undefined);
         return new Response(JSON.stringify(raw)); } });
     const result = await p.complete('turn', request);
     assert.equal(result.returnedModel, 'actual/model'); assert.equal(result.totalTokens, 14);

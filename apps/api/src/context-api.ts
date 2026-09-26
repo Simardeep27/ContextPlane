@@ -226,6 +226,7 @@ export class ContextApi {
       evidenceIds,
       allowedTools: roleToolAllowlists[identity.role],
       policyEpoch: projection.policyEpoch,
+      activePolicy: projection.activePolicy?.targetAgentId === identity.agentId ? projection.activePolicy : null,
     };
   }
 

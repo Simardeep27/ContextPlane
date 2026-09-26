@@ -1,5 +1,11 @@
 # Team Atlas runtime
 
+The shared hosted MCP is now available at
+`https://context-plane-brain.buddhsen-work.workers.dev/mcp`. See
+[MCP_HOSTING.md](MCP_HOSTING.md) for the exact deployment, observed checks, and
+pending independent teammate acceptance. The local launcher below remains a
+local option; do not start or seed it merely to use the hosted MCP.
+
 September 26, 2026: user explicitly selected Buddhsen's Atlas and authorized a private ignored `.env` for the hackathon. This supersedes Keychain-only storage for this local setup. Keep `.env` untracked, mode 0600, out of logs and screenshots. Never include it in a commit or deployment image.
 
 From the repository root with Node 24+ and built packages:
@@ -32,4 +38,4 @@ Optional provider values in `.env` are injected into backend children only, not 
 - Three warm readiness calls returned HTTP 200 in 251, 171 and 266 ms. This is observed response time, not a before/after speedup benchmark.
 - OpenRouter key authentication returned HTTP 200; zero inference calls.
 
-No Cloudflare deployment or paid resource provisioning. Running locally keeps the connection pool warm; hosting still needs its own verification. The local API has demo-session authentication and remains loopback-only.
+The earlier local validation above did not include Cloudflare deployment. The later hosted deployment and its separate verification are recorded in [MCP_HOSTING.md](MCP_HOSTING.md). The local API has demo-session authentication and remains loopback-only.
