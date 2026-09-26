@@ -5,9 +5,11 @@ import { buildTree, countNodes, graphFromEvidence, mergeInputs, visibleRows,
 import { BrandMark } from '../ui/BrandMark.tsx';
 import { AppNav } from '../ui/AppNav.tsx';
 import { sampleGraph } from './sample.ts';
+import { impactOf, serviceKey, type Impact } from '../../shared/impact.ts';
 import './graph.css';
 
 interface Recording { sourceCommit: string; observedAt: string; projectId: string; records: EvidenceRecord[] }
+type LiveImpact = { source: 'live'; provider: string; consumers: { identity: string; depth: number; path: string[] }[] };
 type Load = { state: 'loading' } | { state: 'error' } | { state: 'ready'; data: Recording };
 
 const SOURCE_LABEL: Record<GraphSource, string> = { recorded: 'RECORDED', seed: 'SEED', sample: 'SAMPLE', live: 'LIVE' };
@@ -50,11 +52,34 @@ export function Graph() {
     return () => abort.abort();
   }, []);
 
-  const tree = useMemo(() => {
+  const input = useMemo(() => {
     const recorded = load.state === 'ready' ? graphFromEvidence(load.data.records) : null;
     const parts = [recorded, showSample ? sampleGraph() : null].filter((p): p is NonNullable<typeof p> => p !== null);
-    return parts.length ? buildTree(mergeInputs(...parts)) : [];
+    return parts.length ? mergeInputs(...parts) : null;
   }, [load, showSample]);
+  const tree = useMemo(() => (input ? buildTree(input) : []), [input]);
+  const [impactSurface, setImpactSurface] = useState('');
+  const [live, setLive] = useState<LiveImpact | null>(null);
+  useEffect(() => {
+    // Live $graphLookup impact when an API is reachable; otherwise the displayed edges, labeled by source.
+    setLive(null); if (!impactSurface) return;
+    const abort = new AbortController();
+    fetch(`/api/impact?surface=${encodeURIComponent(impactSurface)}`, { signal: abort.signal })
+      .then(r => (r.ok ? r.json() as Promise<LiveImpact> : null)).then(v => { if (v?.source === 'live') setLive(v); }).catch(() => {});
+    return () => abort.abort();
+  }, [impactSurface]);
+  const impact: Impact | null = useMemo(() => {
+    if (!impactSurface || !input) return null;
+    if (live) return { surfaceId: impactSurface, source: 'live', hits: new Map(live.consumers.map(c =>
+      [c.identity, { serviceKey: c.identity, depth: c.depth, path: c.path }])) };
+    return impactOf(input, impactSurface);
+  }, [impactSurface, input, live]);
+  const hopsFor = (node: TreeNode): number | null => {
+    if (!impact || !input) return null;
+    const key = node.kind === 'service' ? serviceKey(node.id.slice('service:'.length))
+      : node.kind === 'consumer' ? serviceKey(input.dependencies.find(d => d.dependencyId === node.id)?.consumerServiceId ?? '') : '';
+    return impact.hits.get(key)?.depth ?? null;
+  };
   const rows = useMemo(() => visibleRows(tree, collapsed), [tree, collapsed]);
   const scale = useMemo(() => domains(tree), [tree]);
   const all = useMemo(() => { const out: TreeNode[] = []; const w = (n: TreeNode) => { out.push(n); n.children.forEach(w); }; tree.forEach(w); return out; }, [tree]);
@@ -85,7 +110,7 @@ export function Graph() {
         <div><dt><span className="src src--seed">SEED</span></dt><dd>Service names, owners and <code>dependency_orders_billing</code> from the MVP-02 scenario seed</dd></div>
         <div><dt><span className="src src--sample">SAMPLE</span></dt><dd>
           <label><input type="checkbox" checked={showSample} onChange={e => setShowSample(e.target.checked)} /> Illustrative fixtures for density, not real work</label></dd></div>
-        <div><dt><span className="src src--off">LIVE</span></dt><dd>Not connected. This view has no live read route yet.</dd></div>
+        <div><dt><span className="src src--off">LIVE</span></dt><dd>Not connected. Impact tries the live <code>$graphLookup</code> route first and labels any fallback.</dd></div>
       </dl>
     </section>
 
@@ -94,6 +119,14 @@ export function Graph() {
       <span className="chip chip--blocked">{counts.blocked} blocked</span>
       <button onClick={() => setCollapsed(new Set())}>Expand all</button>
       <button onClick={() => setCollapsed(new Set(tree.map(t => t.id)))}>Collapse all</button>
+      <label className="impact-pick">Impact of changing{' '}
+        <select value={impactSurface} onChange={e => setImpactSurface(e.target.value)}>
+          <option value="">choose a surface…</option>
+          {input?.surfaces.map(s => <option key={s.surfaceId} value={s.surfaceId}>{s.label}</option>)}
+        </select></label>
+      {impact && <span className="impact-summary">{impact.hits.size} affected consumer{impact.hits.size === 1 ? '' : 's'} ·{' '}
+        {impact.source === 'live' ? <span className="src src--live">LIVE $graphLookup</span>
+          : <><span className={`src src--${impact.source === 'mixed' ? 'sample' : impact.source}`}>{impact.source === 'mixed' ? 'MIXED' : SOURCE_LABEL[impact.source]}</span> fallback: live route unavailable</>}</span>}
     </div>
 
     <div className={`graph-body${selectedNode ? ' graph-body--panel' : ''}`}>
@@ -106,7 +139,7 @@ export function Graph() {
               <span>{time(new Date(recDomain[1]).toISOString(), 'recorded')}</span></> : <span>timeline</span>}
           </span>
         </div>
-        {rows.map(node => <Row key={node.id} node={node} open={!collapsed.has(node.id)} selected={node.id === selected}
+        {rows.map(node => <Row key={node.id} node={node} hops={hopsFor(node)} open={!collapsed.has(node.id)} selected={node.id === selected}
           domain={scale.get(node.source === 'seed' ? 'recorded' : node.source)}
           onToggle={() => toggle(node.id)} onSelect={() => setSelected(node.id === selected ? null : node.id)}
           onHover={(e) => setHover(e ? { node, ...e } : null)} />)}
@@ -118,8 +151,8 @@ export function Graph() {
   </main>;
 }
 
-function Row({ node, open, selected, domain, onToggle, onSelect, onHover }: {
-  node: TreeNode; open: boolean; selected: boolean; domain: [number, number] | undefined;
+function Row({ node, hops, open, selected, domain, onToggle, onSelect, onHover }: {
+  node: TreeNode; hops: number | null; open: boolean; selected: boolean; domain: [number, number] | undefined;
   onToggle: () => void; onSelect: () => void; onHover: (p: { x: number; y: number } | null) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -134,6 +167,7 @@ function Row({ node, open, selected, domain, onToggle, onSelect, onHover }: {
       <span className={`kind kind--${node.kind}`} aria-hidden>{node.kind === 'service' ? 'SVC' : node.kind === 'surface' ? 'API' : 'USE'}</span>
       <span className="name-text" title={`${node.label} · ${node.detail}`}><strong>{node.label}</strong><small>{node.detail}</small></span>
       {node.source !== 'recorded' && <span className={`src src--${node.source}`}>{SOURCE_LABEL[node.source]}</span>}
+      {hops !== null && <span className="impact-hops" title="Affected by the selected change">{hops} hop{hops === 1 ? '' : 's'}</span>}
     </span>
     <span className="cell-rev mono">
       {node.kind === 'surface' && rev(node.revision)}

@@ -1,3 +1,4 @@
+import type { ImpactResult } from "@context-plane/persistence";
 import { ApiError, ContextApi, type PublishDependencyInput } from "./context-api.js";
 import { optimizeHarnessPrompt, parseHarnessOptimizeInput } from "./harness-optimize.js";
 
@@ -17,7 +18,10 @@ async function parseJson(request: Request): Promise<unknown> {
   }
 }
 
-export function createContextApiHandler(api: ContextApi): (request: Request) => Promise<Response> {
+/** Read-only transitive impact reader (`$graphLookup` over coordination dependencies). */
+export type ImpactReader = (projectId: string, coordinationScope: string, surface: string) => Promise<ImpactResult>;
+
+export function createContextApiHandler(api: ContextApi, impact?: ImpactReader): (request: Request) => Promise<Response> {
   return async (request) => {
     try {
       const url = new URL(request.url);
@@ -40,13 +44,19 @@ export function createContextApiHandler(api: ContextApi): (request: Request) => 
           throw error;
         }
       }
-      const match = /^\/v1\/projects\/([^/]+)\/(context|projection|events|publications\/dev-b)$/u.exec(url.pathname);
+      const match = /^\/v1\/projects\/([^/]+)\/(context|projection|events|impact|publications\/dev-b)$/u.exec(url.pathname);
       if (!match) throw new ApiError(404, "ROUTE_NOT_FOUND");
       const projectId = decodeURIComponent(match[1] ?? "");
       const route = match[2];
       const identity = api.authenticate(request.headers.get("x-demo-session"));
       if (request.method === "GET" && route === "context") {
         return json(200, await api.getContext(identity, projectId, url.searchParams.get("agentId") ?? undefined));
+      }
+      if (request.method === "GET" && route === "impact") {
+        if (!impact) throw new ApiError(404, "ROUTE_NOT_FOUND");
+        const scope = url.searchParams.get("scope") ?? ""; const surface = url.searchParams.get("surface") ?? "";
+        if (!scope || !surface || scope.length > 256 || surface.length > 256) throw new ApiError(400, "INVALID_INPUT");
+        return json(200, { source: "live", ...await impact(projectId, scope, surface) });
       }
       if (request.method === "GET" && route === "projection") {
         return json(200, await api.getProjection(identity, projectId));
