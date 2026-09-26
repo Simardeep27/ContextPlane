@@ -1,5 +1,11 @@
 # MCP integration status — 2026-09-26
 
+Current hosted deployment: source `73a9106`, Worker version
+`bdff3753-2963-41a7-a50e-b67787c35c7d`. Authenticated discovery exposes all nine
+tools against the existing team scope. Existing teammate surfaces and our own
+publication/readback are verified; independent teammate message acceptance is
+still pending. See [hosted verification](../../docs/MCP_HOSTING.md).
+
 Current merged source exposes nine tools: two product reads and seven durable
 coordination tools. The HTTP server and stdio bridge are reconciled. Local
 validation: typecheck passes; 24 tests pass and one opt-in Mongo test entry is
@@ -14,8 +20,8 @@ index initialization. Repeated acknowledgements preserve the recorded outcome.
 
 The shared token grants project-wide coordination access with caller-selected
 identities. Per-agent authentication and the product gateway write adapter are
-not implemented. This source merge has not been deployed or independently
-verified against the hosted endpoint in this reconciliation task. See
+not implemented. The initial reconciliation did not deploy this source; the subsequent issue #3
+deployment and live verification are recorded above. See
 [README](README.md) for safe local startup and explicit smoke write mode.
 
 ## Earlier deployment evidence retained from b016cf8
