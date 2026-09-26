@@ -1,11 +1,12 @@
 # ContextPlane agent entry point
 
-## Current priority: Company Harness demo sprint
+## Current priority: Company Harness development
 
 Latest user direction, September 26: use `Simardeep27/ContextPlane` main as the
 only integration source. Demo name: **Company Harness**. Do not mirror work into
-Hivemind. The active sprint targets a demo around 20:48 UTC; prioritize the
-existing shared system over additional infrastructure.
+Hivemind. There is no freeze: development continues normally on `main`, and
+every change lands through a reviewed PR. Prioritize the existing shared system
+over additional infrastructure.
 
 Every active developer agent, Codex or Claude, must follow
 `docs/AGENT_SYNC_CONTRACT.md`, with its own identity and session ID. Read shared
@@ -20,12 +21,10 @@ conflicting work merely to satisfy the timer. After merging, publish the merged
 SHA and refresh shared context. This is an operating contract, not a technical
 claim that every arbitrary client is automatically intercepted.
 
-Authorized lanes: hosted MCP #3, onboarding #7, MVP06 #16, explicitly claimed
-MVP07 #17, automatic reporting #27 and Vercel UI #28. Respect issue owners and
-file boundaries; claim before starting. Other parked milestones remain parked.
-Use the existing hosted MCP and Atlas; Vercel hosts UI/server-side reads. No new
-AWS service or queue platform for this sprint. No shared DB resets, dummy seeds,
-or synthetic migration API startup.
+All open issue lanes are active. Respect issue owners and file boundaries;
+claim before starting. Use the existing hosted MCP and Atlas; Vercel hosts
+UI/server-side reads. No new AWS service or queue platform without agreement.
+No shared DB resets, dummy seeds, or synthetic migration API startup.
 
 Read [docs/ONTOLOGY.md](docs/ONTOLOGY.md) before planning or changing this project.
 Use its vocabulary in code, schemas, prompts, UI, issues and handoffs. It defines
