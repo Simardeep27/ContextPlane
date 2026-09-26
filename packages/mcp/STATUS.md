@@ -1,32 +1,24 @@
-# MCP worker migration — work in progress
+# MCP worker migration status
 
-Checkpoint requested before implementation was finished. Branch: `buddhh/mcp-worker`.
-Based on `wireframe` commit `b7095c8`, which includes the merged Atlas adapter.
+Deployed on 2026-09-26 from branch `buddhh/mcp-worker`.
+Worker version: `e1431d29-18be-44b1-91fa-31a9bc638967`.
+The existing worker/container application now runs the TypeScript MCP server
+against shared contracts and the Atlas persistence adapter.
 
-Implemented so far:
+Validated:
+- Workspace build and typecheck; 5 contract and 17 persistence tests.
+- All 11 MCP HTTP/stdio tests, including authentication and scope isolation.
+- Linux container build and Wrangler deployment dry-run.
+- Live authenticated Atlas readiness, both read tools, scope rejection, and reconnects.
+- Stdio bridge discovery and read against the deployed service.
 
-- TypeScript MCP HTTP server using the shared contracts and persistence adapter.
-- Server-bound project scope, bearer authentication, bounded requests/results,
-  and read handlers for `get_project_context` and `read_operation`.
-- Configuration to update the existing `context-plane-brain` Cloudflare worker,
-  preserving its container class, binding, migration and instance identity.
-- Container build files and generated Wrangler binding/runtime types.
+The configured scope has no saved projection: the live read returned `null`.
+No data was seeded or migrated. No neighboring source or env file was changed.
+The local Codex `context_plane` entry references the existing neighboring env
+file and built bridge, with 120-second startup/tool timeouts. Restart the client
+session to load it; a full Codex/Claude workflow has not been validated.
 
-Validation and blockers:
-
-- Dependencies installed; Wrangler type generation passed.
-- Build currently fails in `src/app.ts`: MCP SDK transport types conflict with
-  this package's `exactOptionalPropertyTypes` setting (transport options and
-  `onclose`). This checkpoint is not build-ready.
-- MCP HTTP/security tests, container build, deploy dry-run, and live checks
-  have not been completed. No test files exist in this package yet.
-- The package's `smoke` script is reserved; `src/smoke.ts` is not implemented.
-- Client bridge/configuration and teammate onboarding remain unfinished.
-- Domain write handlers are not available in the current shared runtime and
-  are not exposed. This replaces the old Python tool catalog when deployed.
-- Proposed configuration targets `context_plane_poc`, `org_demo`, and
-  `project_context_plane`; no fixture or production data was seeded.
-
-**No deployment has occurred.** The existing remote Python MCP service and its
-encrypted secrets remain unchanged. No neighboring source or `.env` was modified
-or copied. Resolve the build and complete the above checks before deployment.
+Only `get_project_context` and `read_operation` are exposed. Domain writes and
+per-agent authorization remain pending the shared runtime. The shared token
+permits project reads; it does not identify individual agents. See [README](README.md)
+for teammate setup, configuration, and operational constraints.
