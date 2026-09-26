@@ -11,7 +11,9 @@ export const eventTypes = ['work_started','progress','decision','blocked','check
 export type TeamEventType = typeof eventTypes[number];
 /** Allowlisted ledger event: only these fields ever reach the browser. */
 export type TeamEvent = { type: TeamEventType; actor: string; task: string | null; summary: string | null; files: string[]; occurredAt: string; waiting?: boolean };
-export type TeamSnapshot = { fetchedAt: string; agents: TeamAgent[]; events: TeamEvent[]; possiblyTruncated: boolean };
+/** Allowlisted company-brain insight (e.g. from the Vercel Cron steward); derived context, not evidence. */
+export type TeamInsight = { title: string; author: string; createdAt: string };
+export type TeamSnapshot = { fetchedAt: string; agents: TeamAgent[]; events: TeamEvent[]; possiblyTruncated: boolean; insights?: TeamInsight[] };
 const record = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const text = (v: unknown, max = 2000) => typeof v === 'string' && v.trim() ? v.slice(0, max) : null;
 const list = (v: unknown) => Array.isArray(v) ? v.slice(0, 30).map(x => text(x)).filter((x): x is string => x !== null) : [];
@@ -58,7 +60,18 @@ export function projectTeam(value: unknown, now = new Date()): TeamSnapshot {
   const rawEvents = Array.isArray(context.messages) ? context.messages : [];
   const events = rawEvents.slice(-500).map(projectEvent).filter((e): e is TeamEvent => e !== null)
     .sort((a,b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
-  return { fetchedAt: now.toISOString(), agents: [...agents.values()].sort((a,b) => a.identity.localeCompare(b.identity)), events, possiblyTruncated: context.surfaces.length >= 100 };
+  const insights = projectInsights(record(value).brain);
+  return { fetchedAt: now.toISOString(), agents: [...agents.values()].sort((a,b) => a.identity.localeCompare(b.identity)), events, possiblyTruncated: context.surfaces.length >= 100,
+    ...(insights.length ? { insights } : {}) };
+}
+/** get_context's brain digest (recall of the newest insights) projected to title, author and time only. */
+export function projectInsights(brain: unknown): TeamInsight[] {
+  const raw = record(brain).insights;
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 5).flatMap(item => {
+    const e = record(item); const title = text(e.title, 200); const author = text(e.author, 256); const createdAt = date(e.createdAt);
+    return title && author && createdAt ? [{ title, author, createdAt }] : [];
+  }).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 /** Allowlisted mapping of the MCP read_ledger result (already sanitized server-side) into team events. */
 export function projectLedger(value: unknown): TeamEvent[] {
