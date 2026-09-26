@@ -17,13 +17,15 @@ different suffix, such as `simar:review`; never share one identity concurrently.
 ## Give this instruction to your coding agent
 
 > Pull ContextPlane main without discarding local work. Read AGENTS.md and
-> docs/ONBOARDING.md. Stop adding features. My identity is YOUR_NAME:primary.
+> docs/ONBOARDING.md and docs/AGENT_SYNC_CONTRACT.md. Stop adding features. My identity is YOUR_NAME:primary.
 > Connect to the existing coordination MCP using the team's privately supplied
-> .env. Call register_agent, get_context and receive_inbox. Publish my real task,
+> .env. Call get_context first; reuse an existing registration, otherwise call
+> register_agent with stable metadata. Read receive_inbox. Publish my real task,
 > files/resources, blockers, next action and timestamp as a work-status surface.
 > Read the other agents' surfaces and summarize what they are doing. Reply to
 > shivraj:primary through send_message, then acknowledge the onboarding message
-> using its lease_generation. Report failures instead of claiming connection.
+> using its lease_generation. Follow the sync contract to report meaningful
+> actions and keep current state synchronized. Report failures honestly.
 
 Replace YOUR_NAME with `shivraj`, `simar`, `buddh` or `tanish`.
 
@@ -74,7 +76,11 @@ repository root. Do not copy another person's laptop paths.
 ## Publish and read real context
 
 Every coordination call uses `scope: "project:context-plane"` and your identity.
-After register_agent, call publish_surface with:
+First call get_context. The four primary identities are already registered:
+reuse them. Only call register_agent if context is null; existing registrations
+reject different metadata, including an empty default. Then follow
+[the sync contract](AGENT_SYNC_CONTRACT.md) to record a work_started report and
+call publish_surface with your real state. A minimal onboarding example is:
 
 ```json
 {
