@@ -47,3 +47,14 @@ test('project hook without a token exits 0 silently and writes nothing', () => {
     assert.equal(bad.status, 0); assert.equal(bad.stderr.trim().split('\n').length, 1);
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
+
+test('identity prefix must name the person running the agent', async () => {
+  const { identityMatchesPerson, configuration } = await import('./claude.mjs');
+  assert.equal(identityMatchesPerson('simar:primary', 'Simar'), true);
+  assert.equal(identityMatchesPerson('buddh:primary', 'Buddhsen'), true);
+  assert.equal(identityMatchesPerson('shivraj:mvp-07', 'Simar'), false);
+  const env = { CP_SYNC_IDENTITY: 'shivraj:mvp-07', CP_SYNC_PERSON: 'Simar', CP_SYNC_INSTANCE: '12345678-1234-1234-1234-123456789012',
+    CP_SYNC_TASK: 'https://github.com/Simardeep27/ContextPlane/issues/17' };
+  assert.throws(() => configuration(env, 'session-1'), /IDENTITY_PERSON_MISMATCH/);
+  assert.equal(configuration({ ...env, CP_SYNC_IDENTITY: 'simar:mvp-07' }, 'session-1').person, 'Simar');
+});

@@ -28,7 +28,7 @@ secret manager as `CONTEXT_PLANE_API_TOKEN`. Never paste it in commands, setting
 files, issues or reports. From this repository:
 
 ```sh
-export CP_SYNC_IDENTITY=shivraj:sync
+export CP_SYNC_IDENTITY=shivraj:sync   # prefix must be YOUR name: simar:…, buddh:…, tanish:…
 export CP_SYNC_PERSON=Shivraj
 export CP_SYNC_TASK=https://github.com/Simardeep27/ContextPlane/issues/27
 node scripts/agent-sync/launch.mjs
