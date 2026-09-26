@@ -1,4 +1,5 @@
 // Read-only MVP-03 adapter. No database connection or acting-agent command.
+import { evidenceRecord } from '../shared/evidence.ts';
 import { EventEmitter } from "node:events";
 import type { EventEnvelope, ProjectProjection } from "@context-plane/contracts";
 import { mvp02Scenario } from "@context-plane/scenario";
@@ -39,6 +40,8 @@ function displayEvent(event: EventEnvelope): EventEnvelope {
   }
   if (Number.isSafeInteger(source?.dependencyRevision)) payload.dependencyRevision = source!.dependencyRevision;
   if (Array.isArray(source?.evidenceIds)) payload.evidenceIds = source.evidenceIds.filter((id) => typeof id === "string");
+  const view = evidenceRecord(event);
+  if (view) payload.evidenceView = view;
   return { ...pick(event, ["eventId", "type", "runId", "revision", "cursor", "occurredAt"]),
     scope: pick(event.scope, ["orgId", "projectId"]), actor: pick(event.actor, ["kind", "id", "role"]), payload };
 }

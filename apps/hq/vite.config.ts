@@ -5,7 +5,7 @@ const apiPort = Number(process.env.PORT ?? 8787);
 
 export default defineConfig({
   plugins: [react()],
-  build: { chunkSizeWarningLimit: 1600, rollupOptions: { input: { migration: "index.html", team: "team.html" } } },
+  build: { chunkSizeWarningLimit: 1600, rollupOptions: { input: { migration: "index.html", team: "team.html", verified: "verified.html" } } },
   server: {
     host: "127.0.0.1",
     strictPort: true,
