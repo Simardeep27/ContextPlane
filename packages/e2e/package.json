@@ -1,0 +1,19 @@
+{
+  "name": "@context-plane/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node dist/run.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@context-plane/contracts": "0.0.0",
+    "@context-plane/core": "0.0.0",
+    "@context-plane/gateway": "0.0.0",
+    "@context-plane/persistence": "0.0.0",
+    "@context-plane/runner": "0.0.0",
+    "@context-plane/scenario": "0.0.0"
+  }
+}
