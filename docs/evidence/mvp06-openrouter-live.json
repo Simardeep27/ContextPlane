@@ -1,0 +1,135 @@
+{
+  "observedAt": "2026-09-26T20:25:34.553Z",
+  "scope": {
+    "orgId": "worker_live_isolated",
+    "projectId": "e2e_a3f5ae197e3b48919094835aaaf8b194"
+  },
+  "runId": "run_a3f5ae197e3b48919094835aaaf8b194",
+  "sourceCommit": "cba6d92a47fbc53898ebacf26aee52b730a39a9a",
+  "sourceDirty": false,
+  "storage": "isolated-file",
+  "modelCalls": 8,
+  "inference": [
+    {
+      "provider": "openrouter",
+      "generationId": "gen-1790454319-we5q9MsMRN3jxlfFfPJ0",
+      "requestedModel": "openai/gpt-4.1-mini",
+      "returnedModel": "openai/gpt-4.1-mini",
+      "promptTokens": 1125,
+      "completionTokens": 155,
+      "totalTokens": 1280,
+      "latencyMs": 1527,
+      "finishReason": "tool_calls",
+      "tools": [
+        "propose_change",
+        "check_change"
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "generationId": "gen-1790454320-AheXfScmF9HxIb0CxdjB",
+      "requestedModel": "openai/gpt-4.1-mini",
+      "returnedModel": "openai/gpt-4.1-mini",
+      "promptTokens": 2196,
+      "completionTokens": 151,
+      "totalTokens": 2347,
+      "latencyMs": 1534,
+      "finishReason": "tool_calls",
+      "tools": [
+        "report_progress"
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "generationId": "gen-1790454322-Yf8ix9Z9rgh7jqEJrkeL",
+      "requestedModel": "openai/gpt-4.1-mini",
+      "returnedModel": "openai/gpt-4.1-mini",
+      "promptTokens": 2856,
+      "completionTokens": 76,
+      "totalTokens": 2932,
+      "latencyMs": 963,
+      "finishReason": "stop",
+      "tools": []
+    },
+    {
+      "provider": "openrouter",
+      "generationId": "gen-1790454323-0x4Ep4UHPvgjMoGYCowe",
+      "requestedModel": "openai/gpt-4.1-mini",
+      "returnedModel": "openai/gpt-4.1-mini",
+      "promptTokens": 1228,
+      "completionTokens": 130,
+      "totalTokens": 1358,
+      "latencyMs": 1231,
+      "finishReason": "tool_calls",
+      "tools": [
+        "propose_change",
+        "send_agent_message"
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "generationId": "gen-1790454325-CfIV78i7QsXU67OMeoxC",
+      "requestedModel": "openai/gpt-4.1-mini",
+      "returnedModel": "openai/gpt-4.1-mini",
+      "promptTokens": 2403,
+      "completionTokens": 38,
+      "totalTokens": 2441,
+      "latencyMs": 1111,
+      "finishReason": "stop",
+      "tools": []
+    },
+    {
+      "provider": "openrouter",
+      "generationId": "gen-1790454326-ycLzHFgxTBDk0xtWkyAL",
+      "requestedModel": "openai/gpt-4.1-mini",
+      "returnedModel": "openai/gpt-4.1-mini",
+      "promptTokens": 1584,
+      "completionTokens": 213,
+      "totalTokens": 1797,
+      "latencyMs": 1633,
+      "finishReason": "tool_calls",
+      "tools": [
+        "stage_change",
+        "run_checks"
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "generationId": "gen-1790454328-P14Wi9F6pRFgNHB6OGod",
+      "requestedModel": "openai/gpt-4.1-mini",
+      "returnedModel": "openai/gpt-4.1-mini",
+      "promptTokens": 3308,
+      "completionTokens": 75,
+      "totalTokens": 3383,
+      "latencyMs": 1235,
+      "finishReason": "tool_calls",
+      "tools": [
+        "apply_change"
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "generationId": "gen-1790454333-EiszkJD9PQRCbr1Uq9JP",
+      "requestedModel": "openai/gpt-4.1-mini",
+      "returnedModel": "openai/gpt-4.1-mini",
+      "promptTokens": 4396,
+      "completionTokens": 84,
+      "totalTokens": 4480,
+      "latencyMs": 1266,
+      "finishReason": "stop",
+      "tools": []
+    }
+  ],
+  "staleBlocked": true,
+  "realProcessRestart": true,
+  "signal": "SIGKILL",
+  "publicationCount": 2,
+  "correctedPublicationCount": 1,
+  "exactCandidateHash": "sha256:6bfefc738caabc24e0b1b0028fb8a24f1e084d6e72e5f245b9f60ba19daa28ea",
+  "reconciled": true,
+  "limitations": [
+    "Fixed synthetic candidates; deterministic Billing setup and acknowledgement.",
+    "Local process/file persistence; no hosted worker or shared API/MCP write integration.",
+    "Ambiguous provider outcome requires operator reconciliation; no exactly-once provider billing guarantee."
+  ]
+}
