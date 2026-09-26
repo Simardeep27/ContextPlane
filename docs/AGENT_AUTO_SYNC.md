@@ -166,3 +166,86 @@ tools, reads/searches, raw shell commands outside the client, remote sessions an
 arbitrary private activity are outside this adapter. Explicit meaningful
 self-reports remain necessary for decisions, concrete blockers, check evidence
 and final task acceptance that hooks cannot infer safely.
+
+## Opt-in native Codex adapter
+
+`scripts/agent-sync/launch-codex.mjs` adds an explicit Codex CLI entry point.
+The existing Claude launcher stays separate. Current Codex chats, desktop chats,
+and ordinary `codex` launches are **not enrolled** by installing these files.
+No permission policy, sandbox setting or hook trust is changed.
+
+From this checkout, prepare its project-local hook definition:
+
+```sh
+node scripts/agent-sync/launch-codex.mjs --setup
+codex
+```
+
+In Codex, use `/hooks` to inspect and trust the generated command definitions,
+then exit. New or changed definitions require review again. Setup refuses to
+replace an existing different `.codex/hooks.json`; preserve and reconcile that
+configuration before proceeding. The generated file contains local absolute
+paths and is excluded through Git's local `info/exclude`.
+
+Start a covered session with the existing private loader. This passes only the
+MCP token and optional endpoint from the team environment, never database or
+provider credentials. It prints no secret and keeps normal Codex permissions:
+
+```sh
+node --input-type=module -e '
+
+import { spawn } from "node:child_process";
+import { loadTeamEnvironment } from "./scripts/team-environment.mjs";
+const team = loadTeamEnvironment();
+const child = spawn(process.execPath, ["scripts/agent-sync/launch-codex.mjs"], {
+  stdio: "inherit",
+  env: { ...process.env,
+    CONTEXT_PLANE_API_TOKEN: team.CONTEXT_PLANE_API_TOKEN,
+    ...(team.CONTEXT_PLANE_MCP_URL ? { CONTEXT_PLANE_MCP_URL: team.CONTEXT_PLANE_MCP_URL } : {}),
+    CP_SYNC_IDENTITY: "shivraj:codex", CP_SYNC_PERSON: "Shivraj",
+    CP_SYNC_TASK: "https://github.com/Simardeep27/ContextPlane/issues/27" },
+});
+child.on("error", () => { console.error("Codex launch failed"); process.exitCode = 1; });
+child.on("exit", code => { process.exitCode = code ?? 1; });
+'
+```
+
+Use your actual assigned task/person/base identity. The launcher allocates a new
+instance and unique effective identity for each native session. Hook registration
+metadata says `codex-hooks`. The hook command is inert without the launcher's
+enrollment environment. A launcher exit without any captured hook reports fails
+visibly as `UNCOVERED`; it cannot assert that trusted hooks were active.
+
+Covered events are native SessionStart, SessionEnd, Stop, and PostToolUse for
+Bash/apply_patch. PostToolUse is not a success receipt: Codex also emits it for
+nonzero Bash exits. A structured numeric `tool_response.exit_code` can classify a
+failure; opaque or other tool responses remain explicitly unverified. Raw
+responses, commands, patches, transcript paths and conversation text are never
+stored. Stable native tool/turn IDs deduplicate reports where available.
+
+SessionEnd only enqueues with a 250 ms state-lock wait. It starts no network
+request; the launcher flushes after process exit. Other covered hooks enqueue,
+then attempt ordinary bounded delivery. SDK imports occur only for delivery.
+A blocked state lock fails visibly; no lock is stolen. Slow disk writes or forced
+termination before durable capture remain possible. Captured pending reports
+survive and can use the existing `status`, `recover`, and `flush` commands with
+the same private token environment. No background process is installed.
+
+Official [Codex hook documentation](https://learn.chatgpt.com/docs/hooks)
+describes project hooks, exact-definition trust review, Bash/apply_patch coverage,
+and the three-second SessionEnd maximum. Specialized/hosted tool paths may be
+outside native tool-hook coverage. Installed CLI `0.153.4` was inspected; its help
+exposes hook trust controls. No trust-bypass flag is used by this adapter.
+
+Validation: `npm run test:agent-sync` includes Codex normalization/sanitization,
+stable IDs, capture without credentials/network, state-lock timeout, unenrolled
+inert behavior, and independent MCP reader/replay tests for both clients. These
+are isolated fixtures, not evidence of a paid native model turn. A real native
+Codex hook lifecycle and hosted readback must be verified after the human trust
+step. Do not claim this already enrolls the current coordinator conversation.
+
+Until enrolled, Codex follows [AGENT_SYNC_CONTRACT.md](AGENT_SYNC_CONTRACT.md):
+read context and inbox, send a stable-ID meaningful report, publish own
+work-status, and read back its lastEventId. Report at least every five minutes
+and at handoff. A denied connector action must not be retried through another
+transport to evade approval.
