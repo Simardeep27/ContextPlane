@@ -1,6 +1,6 @@
 # Run the isolated reference demo
 
-Latest resource update: the user chose the existing personal cluster while the team finishes shared setup. Atlas runs now require the verified nonsecret `ATLAS_EXPECTED_HOST` explicitly; there is no team-host default. Set it to the hostname confirmed in resource config, then run `npm run demo:atlas`. The isolated test database remains `shivraj_experiments`; this proposed test target and effective access still need confirmation before live execution. The team's app database is never a fallback. Earlier team-cluster setup details below are historical context.
+Latest resource update: the user chose the existing personal cluster while the team finishes shared setup. Its intended app database is `context_plane_poc`; its SRV hostname is not verified and its credential form remains unsubmitted. The personal secret location is `context-plane-personal/MONGODB_URI` in Keychain, tried before the separate team and historical lab entries. Atlas runs require the verified nonsecret `ATLAS_EXPECTED_HOST` explicitly; there is no team-host default. The isolated E2E test database remains `shivraj_experiments`; this proposed test target and effective access still need confirmation before live execution. The app database is never a fallback. Earlier team-cluster setup details below are historical context, not an active personal-credential handoff.
 
 Node 24 and npm are required. From this checkout:
 

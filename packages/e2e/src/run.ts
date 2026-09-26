@@ -31,7 +31,7 @@ const negatives: string[] = [];
 function atlasUri(): string | undefined {
   if (mode !== 'atlas') return undefined;
   if (process.env.MONGODB_URI) return process.env.MONGODB_URI;
-  for (const service of ['context-plane/MONGODB_URI', 'nyc-harness-tech-lab/MONGODB_URI']) {
+  for (const service of ['context-plane-personal/MONGODB_URI', 'context-plane/MONGODB_URI', 'nyc-harness-tech-lab/MONGODB_URI']) {
     try {
       return execFileSync('/usr/bin/security', ['find-generic-password', '-a', userInfo().username,
         '-s', service, '-w'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
