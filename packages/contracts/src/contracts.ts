@@ -177,6 +177,8 @@ export interface ProjectProjection<Version extends ChangeCheckVersion = ChangeCh
   readonly dependencies: readonly DependencyProjection[];
   readonly addressedMessages: readonly AddressedMessage[];
   readonly timeline: readonly TimelineEntry[];
+  /** Current checked rule; immutable versions and evaluations remain in the event ledger. */
+  readonly activePolicy?: PolicyVersion | null;
   /** The exact candidate tuple represented by a candidate-specific snapshot. */
   readonly candidateVersion?: Version;
 }

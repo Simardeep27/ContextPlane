@@ -3,10 +3,12 @@ import { mkdtemp, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { AgentId, ProjectScope, RunId, ToolName, EventId, OperationKey, ProjectProjection } from '@context-plane/contracts';
+import type { AgentId, ProjectScope, RunId, ToolName, EventId, OperationKey, ProjectProjection, CommitStep, PolicyHash } from '@context-plane/contracts';
 import { MemoryStorage, DurablePersistenceAdapter } from '@context-plane/persistence';
 import { ScenarioRunner, snapshotCandidateHash } from '@context-plane/runner';
-import { mvp02Scenario } from '@context-plane/scenario';
+import { applyCoordinationRule } from '@context-plane/core';
+import { evaluatePolicyCandidate, verifyPolicyActivation, type RuleProposalRecord, type RuleEvaluationRecord } from '../src/policy-lifecycle.js';
+import { canonicalJson, sha256, mvp02Scenario } from '@context-plane/scenario';
 import { createHarness, type CommandResult, type Credential, type GatewayRunner } from '../src/index.js';
 
 const tokenA = 'test-token-dev-a-0001'; const tokenA2 = 'test-token-dev-a-0002'; const tokenB = 'test-token-dev-b-0001';
@@ -25,12 +27,19 @@ async function fixture() {
   const clock = () => new Date(millis);
   const storage = new MemoryStorage(clock); const runner = new ScenarioRunner(root);
   let count = 0;
+  let crashOnEvent: string | null = null;
+  class FaultPersistence extends DurablePersistenceAdapter {
+    override async commitStep(step: CommitStep): Promise<void> {
+      await super.commitStep(step);
+      if (step.event?.type === crashOnEvent) { crashOnEvent = null; throw new Error('LOST_COMMIT_REPLY'); }
+    }
+  }
   const make = (extra: { crashAfterEffect?: () => void; runner?: GatewayRunner; runId?: RunId } = {}) => createHarness({
-    persistence: new DurablePersistenceAdapter(storage, { ownerId: `worker_${++count}`, leaseDurationMs: 100 }),
+    persistence: new FaultPersistence(storage, { ownerId: `worker_${++count}`, leaseDurationMs: 100 }),
     runner: extra.runner ?? runner, scope, runId: extra.runId ?? 'gateway_test_run' as RunId, credentials, controllerToken, now: clock,
     ...(extra.crashAfterEffect ? { crashAfterEffect: extra.crashAfterEffect } : {}),
   });
-  return { root, storage, runner, make, expire: () => { millis += 1000; }, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return { root, storage, runner, make, crashAfter: (event: string) => { crashOnEvent = event; }, expire: () => { millis += 1000; }, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 function command(h: ReturnType<typeof createHarness>, token: string, tool: ToolName, operationKey: string, args: Record<string, unknown>) {
   return h.execute({ token, tool, operationKey, args });
@@ -205,4 +214,105 @@ test('runner proof cannot silently change operation identity or check registry',
   const h = f.make({ runner: badRunner });
   try { await assert.rejects(preparePublication(h), /INVALID_RUNNER_PROOF/); }
   finally { await f.cleanup(); }
+});
+
+async function diagnosed(h: ReturnType<typeof createHarness>) {
+  const version = await preparePublication(h);
+  await command(h, tokenB, 'apply_change', 'b-apply', { ...version, operationKey: 'b-apply' });
+  await h.diagnoseFailure(controllerToken, 'diagnostic');
+}
+
+test('proposal, evaluation and activation persist independently; context targets only Dev A', async () => {
+  const f = await fixture(); const h = f.make();
+  try {
+    await assert.rejects(h.proposeRule(tokenA, 'unauthorized-propose'), /UNAUTHORIZED/);
+    await assert.rejects(h.evaluateRule(tokenA, 'unauthorized-eval', 'proposal'), /UNAUTHORIZED/);
+    await assert.rejects(h.activateRule(tokenA, 'unauthorized-activate', 'evaluation'), /UNAUTHORIZED/);
+    await assert.rejects(h.proposeRule(controllerToken, 'without-diagnosis'), /DIAGNOSIS_REQUIRED/);
+    await diagnosed(h);
+    const proposed = await h.proposeRule(controllerToken, 'proposal');
+    assert.equal((await h.context(tokenA)).activePolicy, null);
+    const evaluated = await h.evaluateRule(controllerToken, 'evaluation', 'proposal');
+    assert.equal((await h.context(tokenA)).policyEpoch, 1);
+    await assert.rejects(h.activateRule(controllerToken, 'bad-reference', 'proposal'), /POLICY_RECORD_NOT_FOUND/);
+    const activated = await h.activateRule(controllerToken, 'activation', 'evaluation');
+    assert.equal(activated.result.proposalEventId, proposed.eventId);
+    assert.equal(activated.result.evaluationEventId, evaluated.eventId);
+    const record = evaluated.result.record as RuleEvaluationRecord;
+    const candidate = (proposed.result.record as RuleProposalRecord).candidate;
+    assert.equal(record.candidateHash, sha256(canonicalJson(candidate)));
+    assert.equal(record.evaluation.counts.correct, 5);
+    assert.equal(record.evaluation.counts.validBlocked, 0);
+    assert.equal(candidate.targetAgentId, mvp02Scenario.developers[0].agentId);
+    assert.ok(candidate.evidence.length >= 3);
+    f.expire(); const restarted = f.make();
+    const context = (await restarted.context(tokenA2)).agentContext;
+    assert.equal(context.activePolicy?.policyEpoch, 2);
+    assert.equal((await restarted.context(tokenB)).agentContext.activePolicy, null);
+    const repo = new DurablePersistenceAdapter(f.storage);
+    assert.deepEqual((await repo.readProjection(scope))?.activePolicy, context.activePolicy);
+    const events = await repo.readEvents(scope);
+    assert.equal(events.filter(e => e.type === 'harness.policy_proposed.finished').length, 1);
+    assert.equal(events.filter(e => e.type === 'harness.policy_evaluated.finished').length, 1);
+    assert.equal(events.filter(e => e.type === 'harness.policy_activated.finished').length, 1);
+    // The client consumes the next packet for a held-out revision, and requests
+    // coordination before staging. This is deterministic use, not model inference.
+    const heldOut = { caseId: 'unseen-revision-19', changeKind: 'unit_change' as const,
+      dependencyRevision: 19, candidateDependencyRevision: 19,
+      requiredAgentIds: [mvp02Scenario.developers[1].agentId], acknowledgements: [], observedFailure: null };
+    const decision = applyCoordinationRule(context.activePolicy!.rule, heldOut);
+    assert.equal(decision.decision, 'block');
+    if (decision.decision === 'block') await command(restarted, tokenA2, 'send_agent_message', 'heldout-request', {
+      recipientAgentId: mvp02Scenario.developers[1].agentId,
+      body: 'Coordinate held-out revision 19 before staging.', evidenceIds: context.evidenceIds,
+    });
+    assert.match((await restarted.context(tokenB)).messages.at(-1)!.body, /revision 19/);
+    assert.equal((await repo.readEvents(scope)).filter(e => e.payload && e.type === 'harness.stage_change.finished').length, 1);
+    const replay = await restarted.activateRule(controllerToken, 'activation', 'evaluation');
+    assert.equal(replay.eventId, activated.eventId);
+    await assert.rejects(restarted.evaluateRule(controllerToken, 'evaluation', 'different-proposal'), /IDEMPOTENCY_CONFLICT/);
+  } finally { await f.cleanup(); }
+});
+
+for (const phase of ['policy_proposed', 'policy_evaluated', 'policy_activated']) {
+  test(`learn resumes after a lost ${phase} commit reply without duplicate records or epochs`, async () => {
+    const f = await fixture(); const h = f.make();
+    try {
+      await diagnosed(h); f.crashAfter(`harness.${phase}.finished`);
+      await assert.rejects(h.learnFromFailure(controllerToken, 'recover-learning'), /LOST_COMMIT_REPLY/);
+      f.expire(); const restarted = f.make();
+      const learned = await restarted.learnFromFailure(controllerToken, 'recover-learning');
+      assert.equal((learned.result.policy as { policyEpoch: number }).policyEpoch, 2);
+      const repo = new DurablePersistenceAdapter(f.storage);
+      const events = await repo.readEvents(scope);
+      for (const type of ['policy_proposed', 'policy_evaluated', 'policy_activated']) {
+        assert.equal(events.filter(e => e.type === `harness.${type}.finished`).length, 1);
+      }
+      assert.equal((await restarted.learnFromFailure(controllerToken, 'recover-learning')).replayed, true);
+    } finally { await f.cleanup(); }
+  });
+}
+
+test('activation rejects harmful rules and changed candidate, target, evidence or verdict', async () => {
+  const f = await fixture(); const h = f.make();
+  try {
+    await diagnosed(h);
+    const proposed = await h.proposeRule(controllerToken, 'proposal');
+    const proposal = proposed.result.record as RuleProposalRecord;
+    const evaluation = evaluatePolicyCandidate(proposal, proposed.eventId as EventId, '2026-09-26T20:00:00Z');
+    const harmfulRule = { ...proposal.candidate.rule, requiredAgentIds: [mvp02Scenario.developers[1].agentId, 'unrelated-agent'] };
+    const harmful = { ...proposal, candidate: { ...proposal.candidate, rule: harmfulRule,
+      policyHash: sha256(canonicalJson(harmfulRule)) as PolicyHash } };
+    const failed = evaluatePolicyCandidate(harmful, proposed.eventId as EventId, evaluation.evaluatedAt);
+    assert.ok(failed.evaluation.counts.validBlocked > 0);
+    assert.throws(() => verifyPolicyActivation(harmful, failed, proposed.eventId as EventId), /EVALUATION_REJECTED/);
+    for (const changed of [
+      { ...proposal, candidate: { ...proposal.candidate, targetAgentId: mvp02Scenario.developers[1].agentId } },
+      { ...proposal, candidate: { ...proposal.candidate, evidence: [] } },
+      { ...proposal, candidate: { ...proposal.candidate, basePolicyEpoch: 99 } },
+    ]) assert.throws(() => verifyPolicyActivation(changed, evaluation, proposed.eventId as EventId), /EVALUATION_BINDING_MISMATCH/);
+    assert.throws(() => verifyPolicyActivation(harmful, { ...failed, evaluation: { ...failed.evaluation, passed: true } }, proposed.eventId as EventId), /EVALUATION_BINDING_MISMATCH/);
+    assert.throws(() => verifyPolicyActivation(proposal, evaluation, 'other-event' as EventId), /EVALUATION_BINDING_MISMATCH/);
+    assert.equal((await h.context(tokenA)).activePolicy, null);
+  } finally { await f.cleanup(); }
 });

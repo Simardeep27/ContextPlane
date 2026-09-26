@@ -161,7 +161,13 @@ async function main() {
   commands.push(learned as CommandResult);
   assert.equal(learned.result.evaluation.passed, true);
   assert.equal(learned.result.policy.policyEpoch, 2);
-  assert.equal((await request(tokenA2, '/context')).activePolicy.policyEpoch, 2);
+  const learnedContext = await request(tokenA2, '/context');
+  assert.equal(learnedContext.activePolicy.policyEpoch, 2);
+  assert.deepEqual(learnedContext.agentContext.activePolicy, learnedContext.activePolicy);
+  assert.equal((await request(tokenB, '/context')).agentContext.activePolicy, null);
+  assert.ok(learned.result.proposalEventId);
+  assert.ok(learned.result.evaluationEventId);
+  assert.ok(learned.result.activationEventId);
   await command(tokenA2, 'propose_change', 'followup-proposal', { ...version('combined-candidate', 8, 2), summary: 'Follow-up under the newly active rule.' });
   const followupBlocked = await command(tokenA2, 'check_change', 'followup-missing-ack', version('combined-candidate', 8, 2));
   assert.equal(followupBlocked.result.policyDecision.decision, 'block');
@@ -169,7 +175,7 @@ async function main() {
   await command(tokenB, 'acknowledge_change', 'followup-ack', { candidateHash: snapshotCandidateHash('combined-candidate'), acknowledgement: 'no-change', evidenceIds: combinedCheck.result.evidenceIds });
   const followupAllowed = await command(tokenA2, 'check_change', 'followup-current-ack', version('combined-candidate', 8, 2));
   assert.equal(followupAllowed.result.policyDecision.decision, 'allow');
-  const learnedRule = learned.result.policy.rule;
+  const learnedRule = learnedContext.agentContext.activePolicy.rule;
   const heldOut = { caseId: 'heldout-revision-19', changeKind: 'unit_change' as const, dependencyRevision: 19, candidateDependencyRevision: 19,
     requiredAgentIds: [agentB], acknowledgements: [], observedFailure: null };
   assert.equal(applyCoordinationRule(learnedRule, heldOut).decision, 'block');
@@ -188,6 +194,8 @@ async function main() {
     realProcessRestart: true, restartSignal: signal, publicationCount: final.publications.length,
     stalePublished: false, testedHash: combinedCheck.result.checkResult.version.candidateHash, publishedHash: recovered.result.proof.candidateHash,
     causalChecks: diagnosis, commands: commands.map(({ operationKey, tool, eventId, receipt, replayed }) => ({ operationKey, tool, eventId, receipt, replayed })),
+    policyLifecycle: { proposalEventId: learned.result.proposalEventId, evaluationEventId: learned.result.evaluationEventId,
+      activationEventId: learned.result.activationEventId, contextPolicyHash: learnedContext.agentContext.activePolicy.policyHash },
     rejectedCases: negatives, policy: learned.result.policy, evaluation: learned.result.evaluation,
     equivalentStaticEvaluation: staticEvaluation, heldOut: { revision: 19, missingAck: 'block', currentAck: 'allow' },
     limitations: ['Fixed synthetic changes and deterministic rule derivation.', 'No measured company productivity uplift.', 'HTTP clients are not Codex or Claude MCP clients.',
