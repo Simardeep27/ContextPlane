@@ -134,7 +134,8 @@ No background subscription or automatic refresh is implied.
 - If MCP is unavailable, tell the developer that shared state is unsynchronized.
   Keep sanitized pending event IDs/payloads in a private gitignored local outbox
   (for example `.artifacts/context-sync/`). Preserve IDs and replay through MCP
-  after recovery. No outbox replayer is provided; the acting agent must do it.
+  after recovery. The opt-in [Claude adapter](AGENT_AUTO_SYNC.md) provides replay for its covered
+  clients; other agents remain responsible for their own pending reports.
 - Continue only independently authorized local work while offline. Before an
   overlapping shared change or handoff, refresh context and resolve conflicts.
   Never bypass the failure by silently writing directly to MongoDB.
