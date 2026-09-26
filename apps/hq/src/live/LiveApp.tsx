@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
-import { answerLive, companyInsights, companyStatus, displayName, initialPanelState, INSIGHT_PERIOD_MS, insightIndex, legendState, liveHeader,
+import { answerLive, displayName, initialPanelState, legendState, liveHeader,
   PANEL_STORAGE_KEY, sceneShift, statusLabels, type PanelState } from "../../shared/live.ts";
 import { BrainIcon, BrandMark } from "../ui/BrandMark.tsx";
 import { useReducedMotion } from "../ui/useReducedMotion.ts";
 import { stateColors } from "../scene/layout.ts";
 import { clock, relative, useNow } from "../ui/format.ts";
 import { LiveScene, statusColor } from "./LiveScene.tsx";
-import { CompanyEvaluator } from "../ui/CompanyEvaluator.tsx";
+import { useCompanyEvaluator } from "../ui/CompanyEvaluator.tsx";
 import { useTeamPoll } from "./useTeamPoll.ts";
 
 const suggestions = ["What is everyone working on?", "Who is blocked?", "What has finished?"];
 
 export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSimulation: () => void }) {
   const poll = useTeamPoll(5000);
+  const observer = useCompanyEvaluator();
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState(suggestions[0]!);
   const [question, setQuestion] = useState(suggestions[0]!);
@@ -50,11 +51,6 @@ export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSim
   useEffect(() => { const on = () => setWidth(innerWidth); addEventListener("resize", on); return () => removeEventListener("resize", on); }, []);
   const [companyOpen, setCompanyOpen] = useState(false);
   const [inspectorMin, setInspectorMin] = useState(false);
-  const insights = useMemo(() => companyInsights(poll.report, poll.views), [poll.report, poll.views]);
-  const status = companyStatus(poll.report);
-  const [tick, setTick] = useState(0);
-  useEffect(() => { const t = setInterval(() => setTick((n) => n + 1), INSIGHT_PERIOD_MS); return () => clearInterval(t); }, []);
-  const thinking = insights[insightIndex(insights.length, tick * INSIGHT_PERIOD_MS)] ?? null;
   const openCompany = () => { setSelected(null); setCompanyOpen(true); };
   const selectAgent = (id: string | null) => { setSelected(id); if (id) { setCompanyOpen(false); setInspectorMin(false); } };
   const counts = poll.report;
@@ -65,15 +61,12 @@ export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSim
 
   return (
     <div className="app app--live">
-      <CompanyEvaluator/>
       <div className="scene">
         <LiveScene views={poll.views} pulseAt={poll.pulseAt} fresh={poll.fresh} selected={selected} onSelect={selectAgent}
-          still={still} shift={sceneShift(width, panel)} onOpenCompany={openCompany}
+          still={still} shift={sceneShift(width, panel)} onOpenCompany={openCompany} observer={observer}
           company={
-            <button type="button" className={`company-label company-label--${status.tone}`} onClick={openCompany} aria-label="Open company agent insights">
-              <span className="company-label__head"><BrainIcon size={18} label={null} /><strong>Company agent</strong><span className="company-label__role">· harness optimizer</span></span>
-              <span className="company-label__chip">{status.label}</span>
-              {thinking && <span key={thinking} className="company-label__thinking" title={thinking}>{thinking}</span>}
+            <button type="button" className="company-label" onClick={openCompany} aria-label="Open company brain">
+              <span className="company-label__head"><BrainIcon size={18} label={null}/><strong>Company brain</strong></span>
             </button>
           } />
       </div>
@@ -183,11 +176,11 @@ export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSim
       )}
 
       {companyOpen && !agent && (
-        <aside className={`inspector panel company-panel${inspectorMin ? " is-min" : ""}`} style={{ "--agent": "#2dd4bf", "--state": "#2dd4bf" } as CSSProperties} aria-label="Company agent insights">
+        <aside className={`inspector panel company-panel${inspectorMin ? " is-min" : ""}`} style={{ "--agent": "#2dd4bf", "--state": "#2dd4bf" } as CSSProperties} aria-label="Company observer details">
           <header className="inspector__head">
             <div className="company-panel__title">
               <BrainIcon size={22} label={null} />
-              <div><h2>Company agent</h2><p className="muted">Harness optimizer · rule-based, no model calls</p></div>
+              <div><h2>Company observer</h2><p className="muted">DeepSeek · shared episodic memory</p></div>
             </div>
             <div className="manager__tools">
               <button type="button" className="btn btn--ghost btn--icon" aria-label={inspectorMin ? "Expand insights" : "Collapse insights"}
@@ -196,13 +189,10 @@ export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSim
             </div>
           </header>
           {!inspectorMin && <>
-            <div className="inspector__state"><span className="state-chip">{status.label}</span>
-              {counts && <span className="muted">{counts.eventsLastHour} events in the last hour</span>}</div>
-            <h3>Insights</h3>
-            <ol className="company-insights">
-              {insights.map((line) => <li key={line} className={line === thinking ? "is-current" : undefined}>{line}</li>)}
-            </ol>
-            <p className="inspector__foot">Computed from the allowlisted team projection each poll. <a href="/team.html">Open the detailed team view →</a></p>
+            <div className="inspector__state"><span className="state-chip">{observer.status}</span>
+              <button className="btn btn--small" onClick={()=>observer.setPaused(!observer.paused)}>{observer.paused?'Resume':'Pause'}</button></div>
+            <p className="observer-detail">{observer.error || observer.body || 'Reading team activity…'}</p>
+            <p className="inspector__foot">{observer.result ? `Saved ${clock(observer.result.memory.createdAt)} · ` : ''}Suggestions only. <a href="/team.html">Team activity →</a></p>
           </>}
         </aside>
       )}

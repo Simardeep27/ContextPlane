@@ -3,6 +3,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { MathUtils, Vector3, type Group, type Mesh, type MeshBasicMaterial, type MeshStandardMaterial } from "three";
 
+import type { CompanyEvaluatorState } from "../ui/CompanyEvaluator.tsx";
 import type { AgentView } from "../../shared/harness.ts";
 import { layoutTeam, legendState, padRadius, padSummary, statusLabels, type PadLayout, type Vec3 } from "../../shared/live.ts";
 import { stateColors } from "../scene/layout.ts";
@@ -29,6 +30,7 @@ interface Props {
   shift: number;
   onOpenCompany: () => void;
   company: ReactNode;
+  observer: CompanyEvaluatorState;
 }
 
 // Eases the camera and orbit target sideways so the open command-center panel never covers a pad.
@@ -111,7 +113,7 @@ function CompanyAgent({ pulseAt, still, onOpen, children }: { pulseAt: number | 
           <meshBasicMaterial color="#a78bfa" transparent opacity={0.55} toneMapped={false} />
         </mesh>
       </group>
-      <Label position={[0, 3.55, 0]} center distanceFactor={11} zIndexRange={[40, 30]}>{children}</Label>
+      <Label position={[0, 3.55, 0]} center distanceFactor={11} zIndexRange={[6, 0]}>{children}</Label>
     </group>
   );
 }
@@ -154,7 +156,7 @@ function Pad({ pad }: { pad: PadLayout }) {
   );
 }
 
-function Robot({ view, position, freshAt, selected, onSelect, still }: { view: AgentView; position: Vec3; freshAt: number | undefined; selected: boolean; onSelect: () => void; still: boolean }) {
+function Robot({ view, position, freshAt, selected, onSelect, still, label }: { label?: ReactNode; view: AgentView; position: Vec3; freshAt: number | undefined; selected: boolean; onSelect: () => void; still: boolean }) {
   const color = statusColor(view.status);
   const [hovered, setHovered] = useState(false);
   const body = useRef<Group>(null);
@@ -220,7 +222,8 @@ function Robot({ view, position, freshAt, selected, onSelect, still }: { view: A
           </mesh>
         </group>
       </group>
-      <Label position={[0, 1.45, 0]} center distanceFactor={8} zIndexRange={hovered || selected ? [30, 20] : [10, 0]}>
+      <Label position={[0, label ? 2 : 1.45, 0]} center distanceFactor={label ? undefined : 8} zIndexRange={[6, 0]}>
+        {label ?? (
         <button
           type="button"
           className={`live-label${selected ? " is-selected" : ""}`}
@@ -240,7 +243,7 @@ function Robot({ view, position, freshAt, selected, onSelect, still }: { view: A
               <span><b>Last update</b> {view.updatedAt ? clock(view.updatedAt) : "not reported"}{view.idleMinutes !== null ? ` · ${view.idleMinutes}m ago` : ""}</span>
             </span>
           )}
-        </button>
+        </button>)}
       </Label>
     </group>
   );
@@ -266,7 +269,7 @@ function ReportPacket({ from, startedAt, color }: { from: Vec3; startedAt: numbe
   );
 }
 
-export function LiveScene({ views, pulseAt, fresh, selected, onSelect, still, shift, onOpenCompany, company }: Props) {
+export function LiveScene({ views, pulseAt, fresh, selected, onSelect, still, shift, onOpenCompany, company, observer }: Props) {
   const pads = useMemo(() => layoutTeam(views), [views]);
   const now = performance.now();
   return (
@@ -292,6 +295,13 @@ export function LiveScene({ views, pulseAt, fresh, selected, onSelect, still, sh
         sectionSize={3} sectionThickness={1} sectionColor="#1d4ed8" fadeDistance={30} fadeStrength={1.4} />
 
       <CompanyAgent pulseAt={pulseAt} still={still} onOpen={onOpenCompany}>{company}</CompanyAgent>
+      <Line points={[[0,0.2,0],[2.6,0.2,1.8]]} color="#a78bfa" lineWidth={2} transparent opacity={0.65}/>
+      <Robot view={{identity:'company:evaluator',suffix:'Observer',person:'Company',status:observer.busy?'working':'idle',task:null,summary:null,files:[],updatedAt:null,lastEventType:null,idleMinutes:null}}
+        position={[2.6,0,1.8]} freshAt={undefined} selected={false} onSelect={onOpenCompany} still={still}
+        label={<button className="observer-speech" onClick={onOpenCompany} aria-label="Open company observer">
+          <strong>Observer <small>{observer.status}</small></strong>
+          <span>{observer.busy?'Reviewing our latest work…':observer.paused?'Paused':observer.error?'Unable to review. Retrying.':observer.short}</span>
+        </button>}/>
       {pads.map((pad) => (
         <group key={pad.person}>
           <Beam to={pad.center} still={still} pulseAt={pad.agents.reduce<number | undefined>((m, a) => {
