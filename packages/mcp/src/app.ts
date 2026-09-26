@@ -2,8 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import express, { type ErrorRequestHandler } from 'express';
 import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { createDomainServer, implementedTools, type DomainHandlers, type Principal } from './domain.js';
+import { createDomainServer, type DomainHandlers, type Principal } from './domain.js';
 
 export interface AppOptions {
   token: string;
@@ -13,6 +12,7 @@ export interface AppOptions {
 }
 export function createApp(options: AppOptions) {
   if (options.token.length < 16) throw new Error('MCP_TOKEN_NOT_CONFIGURED');
+  const availableTools = options.principal.allowedTools.filter(name => options.handlers[name] !== undefined);
   const app = express(); app.disable('x-powered-by');
   app.use(hostHeaderValidation(['127.0.0.1', 'localhost', '[::1]']));
   app.use((req, res, next) => {
@@ -31,20 +31,17 @@ export function createApp(options: AppOptions) {
   app.get('/readyz', async (_req, res) => {
     try {
       await options.ready();
-      res.json({ atlas: 'ready', service: 'context-plane', mode: 'shared-project-coordination', tools: implementedTools });
+      res.json({ atlas: 'ready', service: 'context-plane',
+        mode: availableTools.includes('register_agent') ? 'shared-project-coordination' : 'shared-project-read-only',
+        tools: availableTools });
     } catch { res.status(503).json({ atlas: 'unavailable', code: 'STORAGE_UNAVAILABLE' }); }
   });
   app.post('/mcp', async (req, res) => {
     const server = createDomainServer(options.principal, options.handlers);
-    // Omitting sessionIdGenerator selects the SDK's stateless mode. The explicit
-    // `undefined` shown in its docs is rejected when exactOptionalPropertyTypes
-    // is enabled. The released Node transport's accessor types also do not
-    // structurally satisfy its own Transport interface under that compiler
-    // option, so contain that upstream typing mismatch at this boundary.
     const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
     res.on('close', () => { void server.close().catch(() => {}); });
     try {
-      await server.connect(transport as unknown as Transport);
+      await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch {
       if (!res.headersSent) res.status(500).json({ jsonrpc: '2.0', id: null,

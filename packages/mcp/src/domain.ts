@@ -7,7 +7,8 @@ import { CoordinationError, type CoordinationRepository, type CoordinationToolNa
 
 export const coordinationTools = ['register_agent', 'register_dependency', 'get_context', 'publish_surface',
   'send_message', 'receive_inbox', 'acknowledge'] as const satisfies readonly CoordinationToolName[];
-export const implementedTools = ['get_project_context', 'read_operation', ...coordinationTools] as const;
+export const readTools = ['get_project_context', 'read_operation'] as const;
+export const implementedTools = [...readTools, ...coordinationTools] as const;
 export type ImplementedToolName = (typeof implementedTools)[number];
 export interface Principal {
   readonly scope: ProjectScope;
@@ -28,8 +29,8 @@ export function readHandlers(repository: () => Promise<Reader>): DomainHandlers 
     get_project_context: { readOnly: true, execute: async principal => ({
       mode: 'shared-project-read-only', scope: principal.scope,
       projection: await (await repository()).readProjection(principal.scope),
-      implementedTools,
-      runtimeStatus: 'Domain write handlers are not integrated in this deployment.',
+      implementedTools: readTools,
+      runtimeStatus: 'Product check/apply handlers are not integrated into MCP; coordination writes are separate.',
     }) },
     read_operation: { readOnly: true, execute: async (principal, args) => ({
       scope: principal.scope,

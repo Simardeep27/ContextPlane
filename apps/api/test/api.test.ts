@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import type { CommandId, DependencyId, EvidenceId } from "@context-plane/contracts";
+import type { CommandId, DependencyId, EventId, EvidenceId, RunId } from "@context-plane/contracts";
 import { DurablePersistenceAdapter, MemoryStorage } from "@context-plane/persistence";
 import { mvp02Scenario } from "@context-plane/scenario";
 
@@ -32,7 +32,7 @@ async function fixture() {
 
 function request(
   path: string,
-  session: "dev-a" | "dev-b" | null,
+  session: string | null,
   init: { method?: string; body?: unknown } = {},
 ): Request {
   return new Request(`http://context-plane.test${path}`, {
@@ -112,6 +112,60 @@ describe("MVP-03 Context API", () => {
       method: "POST",
       body: publication(),
     }))).status, 403);
+  });
+
+  it("rejects inherited object properties as session identities on every read route", async () => {
+    const { handle } = await fixture();
+    for (const session of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
+      for (const route of ["context", "projection", "events"]) {
+        const response = await handle(request(`${projectPath}/${route}`, session));
+        assert.equal(response.status, 401, `${session}: ${route}`);
+        assert.equal((await response.json()).error.code, "UNAUTHENTICATED");
+      }
+    }
+  });
+
+  it("publishes and reconciles idempotency beyond the first event page", async () => {
+    const { persistence, handle } = await fixture();
+    for (let cursor = 1; cursor <= 101; cursor++) {
+      await persistence.appendEvent({
+        eventId: `event_history_${cursor}` as EventId,
+        type: "demo.history",
+        scope: mvp02Scenario.scope,
+        runId: "run_history" as RunId,
+        actor: { kind: "system", id: "system", role: "system" },
+        revision: cursor,
+        cursor: String(cursor).padStart(6, "0"),
+        occurredAt: "2026-09-26T14:00:00.000Z",
+        payload: {},
+      });
+    }
+    const first = await handle(request(`${projectPath}/publications/dev-b`, "dev-b", {
+      method: "POST", body: publication(),
+    }));
+    assert.equal(first.status, 201);
+    const published = await first.json();
+    assert.equal(published.event.cursor, "000102");
+    assert.equal(published.event.revision, 102);
+    assert.equal(published.projection.revision, 2);
+
+    const restarted = createContextApiHandler(new ContextApi(persistence));
+    const replay = await restarted(request(`${projectPath}/publications/dev-b`, "dev-b", {
+      method: "POST", body: publication(),
+    }));
+    assert.equal(replay.status, 200);
+    const replayed = await replay.json();
+    assert.equal(replayed.replayed, true);
+    assert.deepEqual(replayed.event, published.event);
+    assert.deepEqual(replayed.projection, published.projection);
+
+    const conflict = await restarted(request(`${projectPath}/publications/dev-b`, "dev-b", {
+      method: "POST", body: publication({ commandId: "command_conflicting_reuse" as CommandId }),
+    }));
+    assert.equal(conflict.status, 409);
+    assert.equal((await conflict.json()).error.code, "IDEMPOTENCY_CONFLICT");
+    const remaining = await persistence.readEvents(mvp02Scenario.scope, "000100");
+    assert.deepEqual(remaining.map(({ cursor }) => cursor), ["000101", "000102"]);
   });
 
   it("exposes the committed projection and cursor-resumable event timeline", async () => {

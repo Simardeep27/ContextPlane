@@ -4,6 +4,8 @@ This application exposes the minimum scoped API for the synthetic Dev A / Dev B
 scenario. Authentication is intentionally fixed: send `x-demo-session: dev-a`
 or `x-demo-session: dev-b`. The server derives organization, project, user,
 agent, and role from that session; callers cannot choose their own scope.
+This is a separate local demo API, not the MCP or gateway write path. It listens
+only on `127.0.0.1`; the public demo session names are not production credentials.
 
 Routes:
 

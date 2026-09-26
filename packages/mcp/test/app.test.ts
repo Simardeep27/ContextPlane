@@ -9,6 +9,9 @@ import type { ProjectScope } from '@context-plane/contracts';
 import { createApp } from '../src/app.js';
 import { MemoryCoordinationRepository } from '../src/coordination.js';
 import { coordinationHandlers, implementedTools, readHandlers } from '../src/domain.js';
+import { verifySmoke } from '../src/smoke.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { fileURLToPath } from 'node:url';
 
 const token = 'test-token-at-least-16-characters';
 const scope = { orgId: 'org_test', projectId: 'project_test' } as ProjectScope;
@@ -141,5 +144,36 @@ describe('MCP HTTP service', () => {
     });
     assert.equal(response.status, 503);
     assert.deepEqual(await response.json(), { atlas: 'unavailable', code: 'STORAGE_UNAVAILABLE' });
+  });
+
+  it('smoke verifies nine tools, all coordination actions, and reconnects locally', async () => {
+    const base = await start();
+    const result = await verifySmoke(new URL('/mcp', base), token, {
+      coordinationScope: 'project:context-plane', write: true,
+    });
+    assert.equal(result.tools.length, 9);
+    assert.equal(result.coordinationWrites, 'PASS');
+    assert.equal(result.reconnect, 'PASS');
+  });
+
+  it('preserves all nine tools and durable context through a restarted stdio bridge', async () => {
+    const base = await start();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const client = new Client({ name: 'nine-tool-bridge-test', version: '1.0.0' });
+      const transport = new StdioClientTransport({ command: process.execPath,
+        args: ['--import', 'tsx', fileURLToPath(new URL('../src/bridge.ts', import.meta.url))],
+        env: { CONTEXT_PLANE_API_TOKEN: token, CONTEXT_PLANE_MCP_URL: new URL('/mcp', base).href },
+      });
+      try {
+        await client.connect(transport);
+        assert.deepEqual((await client.listTools()).tools.map(tool => tool.name), [...implementedTools]);
+        const arguments_ = { scope: 'project:context-plane', identity: 'test:bridge-restart' };
+        const result = await client.callTool({ name: attempt === 0 ? 'register_agent' : 'get_context', arguments: arguments_ });
+        assert.ok(!result.isError);
+        const content = result.content as Array<{ text: string }>;
+        const value = JSON.parse(content[0]!.text);
+        assert.equal(attempt === 0 ? value.identity : value.context.agent.identity, arguments_.identity);
+      } finally { await client.close(); }
+    }
   });
 });

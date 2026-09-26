@@ -21,13 +21,14 @@ async function main() {
     return pending;
   };
   let repository: DurablePersistenceAdapter | undefined;
-  let coordination: MongoCoordinationRepository | undefined;
+  let coordination: Promise<MongoCoordinationRepository> | undefined;
   const coordinationRepository = async () => {
-    if (!coordination) {
+    coordination ??= (async () => {
       const active = await connection();
-      coordination = new MongoCoordinationRepository(active.client.db(database), scope);
-      await coordination.initialize();
-    }
+      const initialized = new MongoCoordinationRepository(active.client.db(database), scope);
+      await initialized.initialize();
+      return initialized;
+    })().catch(error => { coordination = undefined; throw error; });
     return coordination;
   };
   const app = createApp({ token, principal: { scope, coordinationScope,

@@ -186,7 +186,7 @@ export class ContextApi {
   }
 
   authenticate(sessionId: string | null): DemoIdentity {
-    if (!sessionId || !(sessionId in sessions)) throw new ApiError(401, "UNAUTHENTICATED");
+    if (!sessionId || !Object.hasOwn(sessions, sessionId)) throw new ApiError(401, "UNAUTHENTICATED");
     return sessions[sessionId as DemoSessionId];
   }
 
@@ -247,6 +247,21 @@ export class ContextApi {
     }
   }
 
+  private async publicationHistory(): Promise<readonly EventEnvelope[]> {
+    const events: EventEnvelope[] = [];
+    let cursor = "000000";
+    for (;;) {
+      const page = await this.persistence.readEvents(mvp02Scenario.scope, cursor);
+      const last = page.at(-1);
+      if (!last) return events;
+      if (!Number.isSafeInteger(Number(last.cursor)) || Number(last.cursor) <= Number(cursor)) {
+        throw new ApiError(500, "INVALID_EVENT_CURSOR");
+      }
+      events.push(...page);
+      cursor = last.cursor;
+    }
+  }
+
   async publishDependency(
     identity: DemoIdentity,
     projectId: string,
@@ -272,9 +287,10 @@ export class ContextApi {
       throw new ApiError(400, "PUBLICATION_FIXTURE_MISMATCH");
     }
     try {
-      const existingEvents = await this.persistence.readEvents(mvp02Scenario.scope);
+      const existingEvents = await this.publicationHistory();
       const id = eventIdFor(input.idempotencyKey);
       const existing = existingEvents.find(({ eventId }) => eventId === id);
+      const nextCursor = Number(existingEvents.at(-1)?.cursor ?? "0") + 1;
       const payload: DependencyPublishedPayload = {
         commandId: input.commandId,
         idempotencyKey: input.idempotencyKey,
@@ -289,8 +305,8 @@ export class ContextApi {
         scope: mvp02Scenario.scope,
         runId: publicationRunId,
         actor: { kind: "agent", id: identity.agentId, role: identity.role },
-        revision: existing?.revision ?? existingEvents.length + 1,
-        cursor: existing?.cursor ?? formatCursor(existingEvents.length + 1),
+        revision: existing?.revision ?? nextCursor,
+        cursor: existing?.cursor ?? formatCursor(nextCursor),
         occurredAt: input.publishedAt,
         payload,
       };

@@ -160,11 +160,16 @@ export class MongoCoordinationRepository implements CoordinationRepository {
     const collection = this.db.collection<DependencyDocument>('cp_coordination_dependencies');
     const documentId = id(this.scope, input.coordinationScope, 'dependency', input.dependencyId);
     const existing = await collection.findOne({ _id: documentId });
+    if (existing && existing.ownerIdentity !== input.ownerIdentity) throw new CoordinationError('CONFLICT');
     if (existing && existing.ownerIdentity === input.ownerIdentity && existing.dependsOn === input.dependsOn &&
       existing.description === input.description) return stripScope(existing);
     const value: CoordinationDependency = { ...input, revision: (existing?.revision ?? 0) + 1, updatedAt: new Date().toISOString() };
-    await collection.replaceOne({ _id: documentId, ...(existing ? { revision: existing.revision } : {}) },
-      this.scoped<DependencyDocument>(value, documentId), { upsert: !existing });
+    const result = await collection.replaceOne({ _id: documentId, revision: existing?.revision ?? { $exists: false } },
+      this.scoped<DependencyDocument>(value, documentId), { upsert: !existing }).catch(error => {
+      if (error instanceof MongoServerError && error.code === 11000) throw new CoordinationError('CONFLICT');
+      throw error;
+    });
+    if (!result.acknowledged || result.matchedCount + result.upsertedCount !== 1) throw new CoordinationError('CONFLICT');
     return value;
   }
 
@@ -185,14 +190,22 @@ export class MongoCoordinationRepository implements CoordinationRepository {
   async publishSurface(input: Pick<CoordinationSurface,
     'surfaceName' | 'coordinationScope' | 'ownerIdentity' | 'kind' | 'content'>): Promise<CoordinationSurface> {
     const collection = this.db.collection<SurfaceDocument>('cp_coordination_surfaces');
-    const documentId = id(this.scope, input.coordinationScope, 'surface', `${input.ownerIdentity}:${input.surfaceName}`);
-    const existing = await collection.findOne({ _id: documentId });
+    const documentId = id(this.scope, input.coordinationScope, 'surface', canonical([input.ownerIdentity, input.surfaceName]));
+    // Preserve an existing legacy record only when both original key components match.
+    const legacyId = id(this.scope, input.coordinationScope, 'surface', `${input.ownerIdentity}:${input.surfaceName}`);
+    const existing = await collection.findOne({ _id: documentId }) ?? await collection.findOne({
+      _id: legacyId, ownerIdentity: input.ownerIdentity, surfaceName: input.surfaceName,
+    });
     const contentHash = hash(input.content);
     if (existing && existing.kind === input.kind && existing.contentHash === contentHash) return stripScope(existing);
     const value: CoordinationSurface = { ...input, contentHash, revision: (existing?.revision ?? 0) + 1,
       updatedAt: new Date().toISOString() };
-    const result = await collection.replaceOne({ _id: documentId, ...(existing ? { revision: existing.revision } : {}) },
-      this.scoped<SurfaceDocument>(value, documentId), { upsert: !existing });
+    const writeId = existing?._id ?? documentId;
+    const result = await collection.replaceOne({ _id: writeId, revision: existing?.revision ?? { $exists: false } },
+      this.scoped<SurfaceDocument>(value, writeId), { upsert: !existing }).catch(error => {
+      if (error instanceof MongoServerError && error.code === 11000) throw new CoordinationError('CONFLICT');
+      throw error;
+    });
     if (!result.acknowledged || result.matchedCount + result.upsertedCount !== 1) throw new CoordinationError('CONFLICT');
     return value;
   }
@@ -217,7 +230,10 @@ export class MongoCoordinationRepository implements CoordinationRepository {
     }
     try { await collection.insertOne(this.scoped<MessageDocument>(value, documentId)); }
     catch (error) {
-      if (error instanceof MongoServerError && error.code === 11000) throw new CoordinationError('CONFLICT');
+      if (error instanceof MongoServerError && error.code === 11000) {
+        // The winner is durable now; re-read it through the same exact replay check.
+        return this.sendMessage(input);
+      }
       throw error;
     }
     return value;
@@ -235,7 +251,12 @@ export class MongoCoordinationRepository implements CoordinationRepository {
       const message = await collection.findOneAndUpdate(filter, { $set: { status: 'leased', leaseExpiresAt: expiresAt,
         updatedAt: now.toISOString() }, $inc: { leaseGeneration: 1 } }, { sort: { createdAt: 1 }, returnDocument: 'after' });
       if (!message) break;
-      claimed.push(stripScope(message));
+      const next = stripScope(message);
+      if (Buffer.byteLength(JSON.stringify({ messages: [...claimed, next] })) > 120 * 1024) {
+        await this.acknowledge(identity, coordinationScope, next.messageId, next.leaseGeneration, false);
+        break;
+      }
+      claimed.push(next);
     }
     return claimed;
   }
@@ -246,12 +267,14 @@ export class MongoCoordinationRepository implements CoordinationRepository {
     const documentId = id(this.scope, coordinationScope, 'message', messageId);
     const now = new Date().toISOString();
     const message = await collection.findOneAndUpdate({ _id: documentId, recipientIdentity: identity,
-      coordinationScope, status: 'leased', leaseGeneration }, success
+      coordinationScope, status: 'leased', leaseGeneration, leaseExpiresAt: { $gt: now } }, success
       ? { $set: { status: 'acknowledged', updatedAt: now }, $unset: { leaseExpiresAt: '' } }
       : { $set: { status: 'pending', updatedAt: now }, $unset: { leaseExpiresAt: '' } },
     { returnDocument: 'after' });
-    if (!message) throw new CoordinationError('LEASE_LOST');
-    return stripScope(message);
+    const completed = message ?? await collection.findOne({ _id: documentId, recipientIdentity: identity,
+      coordinationScope, leaseGeneration, status: success ? 'acknowledged' : 'pending' });
+    if (!completed) throw new CoordinationError('LEASE_LOST');
+    return stripScope(completed);
   }
 }
 
@@ -279,6 +302,7 @@ export class MemoryCoordinationRepository implements CoordinationRepository {
   async registerDependency(input: Pick<CoordinationDependency,
     'dependencyId' | 'coordinationScope' | 'ownerIdentity' | 'dependsOn' | 'description'>): Promise<CoordinationDependency> {
     const key = this.key(input.coordinationScope, input.dependencyId); const existing = this.dependencies.get(key);
+    if (existing && existing.ownerIdentity !== input.ownerIdentity) throw new CoordinationError('CONFLICT');
     if (existing && existing.ownerIdentity === input.ownerIdentity && existing.dependsOn === input.dependsOn &&
       existing.description === input.description) return structuredClone(existing);
     const value = { ...input, revision: (existing?.revision ?? 0) + 1, updatedAt: this.clock().toISOString() };
@@ -296,7 +320,7 @@ export class MemoryCoordinationRepository implements CoordinationRepository {
 
   async publishSurface(input: Pick<CoordinationSurface,
     'surfaceName' | 'coordinationScope' | 'ownerIdentity' | 'kind' | 'content'>): Promise<CoordinationSurface> {
-    const key = this.key(input.coordinationScope, `${input.ownerIdentity}:${input.surfaceName}`);
+    const key = this.key(input.coordinationScope, canonical([input.ownerIdentity, input.surfaceName]));
     const existing = this.surfaces.get(key); const contentHash = hash(input.content);
     if (existing && existing.kind === input.kind && existing.contentHash === contentHash) return structuredClone(existing);
     const value = { ...input, contentHash, revision: (existing?.revision ?? 0) + 1,
@@ -330,6 +354,7 @@ export class MemoryCoordinationRepository implements CoordinationRepository {
     for (const [key, message] of candidates) {
       const value: CoordinationMessage = { ...message, status: 'leased', leaseGeneration: message.leaseGeneration + 1,
         leaseExpiresAt: new Date(now.getTime() + leaseSeconds * 1000).toISOString(), updatedAt: now.toISOString() };
+      if (Buffer.byteLength(JSON.stringify({ messages: [...claimed, value] })) > 120 * 1024) break;
       this.messages.set(key, structuredClone(value)); claimed.push(value);
     }
     return structuredClone(claimed);
@@ -338,8 +363,12 @@ export class MemoryCoordinationRepository implements CoordinationRepository {
   async acknowledge(identity: string, coordinationScope: string, messageId: string,
     leaseGeneration: number, success: boolean): Promise<CoordinationMessage> {
     const key = this.key(coordinationScope, messageId); const existing = this.messages.get(key);
-    if (!existing || existing.recipientIdentity !== identity || existing.status !== 'leased' ||
+    if (!existing || existing.recipientIdentity !== identity ||
       existing.leaseGeneration !== leaseGeneration) throw new CoordinationError('LEASE_LOST');
+    if (existing.status === (success ? 'acknowledged' : 'pending')) return structuredClone(existing);
+    if (existing.status !== 'leased' || Date.parse(existing.leaseExpiresAt ?? '') <= this.clock().getTime()) {
+      throw new CoordinationError('LEASE_LOST');
+    }
     const { leaseExpiresAt: ignored, ...base } = existing; void ignored;
     const value: CoordinationMessage = { ...base, status: success ? 'acknowledged' : 'pending',
       updatedAt: this.clock().toISOString() };

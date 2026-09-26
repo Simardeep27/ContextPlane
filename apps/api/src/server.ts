@@ -42,7 +42,7 @@ const server = createServer(async (incoming, outgoing) => {
   }
 });
 
-server.listen(port, () => process.stdout.write(`Context API listening on :${port}\n`));
+server.listen(port, "127.0.0.1", () => process.stdout.write(`Context API listening on 127.0.0.1:${port}\n`));
 
 async function shutdown(): Promise<void> {
   server.close();
