@@ -38,7 +38,7 @@ export function Inspector({ agent, onClose, onCite, onShowTrail }: Props) {
       <header className="inspector__head">
         <div>
           <h2>{profile.name}</h2>
-          <p className="muted">{profile.employee} · {profile.team} team</p>
+          <p className="muted">{agent.employee ?? profile.employee} · {profile.team} team</p>
         </div>
         <button type="button" className="btn btn--icon" onClick={onClose} aria-label="Close inspector">×</button>
       </header>

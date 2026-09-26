@@ -4,6 +4,7 @@ import { extname, join, normalize, resolve } from "node:path";
 
 import type { HQEvent, ProjectScope } from "../shared/events.ts";
 import { project } from "../shared/projection.ts";
+import { RuntimeSource, publishedRevision, runtimeProjectId } from "./runtime.ts";
 import { ScenarioRunner, scenarioAccessRequestId, type ScenarioStatus } from "./scenario.ts";
 import { openStore } from "./store.ts";
 
@@ -20,8 +21,13 @@ const runner = new ScenarioRunner(store, Number(process.env.SCENARIO_PACE ?? 1))
 let currentProjectId = (await store.latestProjectId()) ?? "checkout-v2-empty";
 runner.status = inferStatus(await store.list(currentProjectId));
 
-console.log(`[hq] ${store.detail}`);
-console.log(`[hq] current project: ${currentProjectId} (${runner.status})`);
+// Runtime mode: render the real Context Plane runtime through its API
+// instead of the scripted demo.
+const runtime = process.env.CONTEXT_API_URL ? new RuntimeSource(process.env.CONTEXT_API_URL.replace(/\/$/, "")) : null;
+runtime?.start();
+
+if (runtime) console.log(`[hq] runtime mode: ${process.env.CONTEXT_API_URL} (project ${runtimeProjectId})`);
+else console.log(`[hq] ${store.detail}\n[hq] current project: ${currentProjectId} (${runner.status})`);
 
 // Recover the scenario phase from history so a restart mid-demo still lets
 // the approval continue the run.
@@ -37,7 +43,14 @@ function inferStatus(events: HQEvent[]): ScenarioStatus {
 const scope = (projectId: string): ProjectScope => ({ orgId, projectId });
 
 function meta() {
-  return { projectId: currentProjectId, store: { mode: store.mode, detail: store.detail }, scenario: runner.status };
+  if (runtime) {
+    const published = runtime.snapshot().projection?.dependencies.some((d) => d.revision >= publishedRevision) ?? false;
+    return { source: "runtime" as const, projectId: runtimeProjectId,
+      store: { mode: "runtime" as const, detail: runtime.status.detail, ok: runtime.status.ok },
+      scenario: published ? ("done" as const) : ("idle" as const) };
+  }
+  return { source: "scripted" as const, projectId: currentProjectId,
+    store: { mode: store.mode, detail: store.detail, ok: true }, scenario: runner.status };
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -63,6 +76,23 @@ async function stream(req: IncomingMessage, res: ServerResponse, projectId: stri
     connection: "keep-alive",
   });
   const write = (name: string, data: unknown) => res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  if (runtime) {
+    write("runtime", { ...meta(), runtime: runtime.snapshot() });
+    const off = runtime.onChange((snapshot) => write("runtime", { ...meta(), runtime: snapshot }));
+    let lastMeta = JSON.stringify(meta());
+    const heartbeat = setInterval(() => {
+      const next = JSON.stringify(meta());
+      if (next !== lastMeta) write("meta", meta());
+      lastMeta = next;
+      res.write(": keep-alive\n\n");
+    }, 1000);
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      off();
+    });
+    return;
+  }
 
   let snapshotRevision: number | null = null;
   const buffered: HQEvent[] = [];
@@ -147,6 +177,17 @@ const server = createServer(async (req, res) => {
       return await stream(req, res, url.searchParams.get("project") ?? currentProjectId);
     }
     if (req.method === "GET" && url.pathname === "/api/meta") return sendJson(res, 200, meta());
+    if (req.method === "POST" && url.pathname === "/api/runtime/publish") {
+      if (!runtime) return sendJson(res, 409, { error: "Runtime mode is off (set CONTEXT_API_URL)" });
+      try {
+        return sendJson(res, 200, await runtime.publishDevB());
+      } catch (error) {
+        return sendJson(res, 502, { error: `Context API rejected the publication: ${(error as Error).message}` });
+      }
+    }
+    if (runtime && (url.pathname === "/api/scenario/start" || url.pathname === "/api/access/decide")) {
+      return sendJson(res, 409, { error: "Not available in runtime mode: the runtime has no decision endpoint yet" });
+    }
     if (req.method === "POST" && url.pathname === "/api/scenario/start") {
       if (runner.status === "running") return sendJson(res, 409, { error: "Scenario is already running" });
       const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "").replace("T", "-");
@@ -169,6 +210,7 @@ server.listen(port, () => console.log(`[hq] API on http://localhost:${port}`));
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     server.close();
+    runtime?.stop();
     void store.close().finally(() => process.exit(0));
   });
 }

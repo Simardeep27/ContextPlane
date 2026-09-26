@@ -54,6 +54,8 @@ export interface MessageItem {
 
 export interface AgentView {
   readonly key: AgentKey;
+  // Person/agent label from the data source; falls back to the HQ profile.
+  employee: string | null;
   state: AgentState;
   stateSince: Traced<AgentState> | null;
   runId: string | null;
@@ -94,7 +96,8 @@ export interface AccessRequestView {
 export interface TimelineItem {
   readonly eventId: string;
   readonly revision: number;
-  readonly type: HQEvent["type"];
+  // Scripted HQ types or open-ended runtime event types.
+  readonly type: string;
   readonly at: string;
   readonly agents: readonly AgentKey[];
   readonly actor: string;
@@ -116,6 +119,7 @@ export function emptyView(): HQView {
   for (const key of agentKeys) {
     agents[key] = {
       key,
+      employee: null,
       state: "idle",
       stateSince: null,
       runId: null,

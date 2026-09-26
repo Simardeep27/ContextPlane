@@ -1,5 +1,10 @@
 import type { Connection, Meta } from "../useEventStream.ts";
 
+const runtimeHints: Record<"idle" | "done", string> = {
+  idle: "Live runtime. Dev B can publish dependency revision N+1; Dev A's agent is still working from N.",
+  done: "Dev B published N+1 and Dev A's agent was notified. Later steps appear as the runtime reports them.",
+};
+
 const hints: Record<Meta["scenario"], string> = {
   idle: "Start a checkout API change to watch the agents coordinate.",
   running: "Agents are working. Click any agent to inspect it.",
@@ -17,7 +22,15 @@ interface Props {
 
 export function TopBar({ meta, connection, eventCount, starting, onStart }: Props) {
   const scenario = meta?.scenario ?? "idle";
-  const busy = scenario === "running" || scenario === "awaiting_approval" || starting;
+  const isRuntime = meta?.source === "runtime";
+  const busy = scenario === "running" || scenario === "awaiting_approval" || starting ||
+    (isRuntime && (scenario === "done" || !meta?.store.ok));
+  const pillLabel = meta?.store.mode === "runtime"
+    ? (meta.store.ok ? "Runtime live" : "Runtime offline")
+    : meta?.store.mode === "mongodb" ? "MongoDB live" : "In-memory";
+  const buttonLabel = isRuntime
+    ? (scenario === "done" ? "N+1 published" : "Dev B publishes N+1")
+    : scenario === "done" || (scenario === "idle" && eventCount > 0) ? "Run again" : "Start checkout API change";
   return (
     <header className="topbar panel">
       <div className="brand">
@@ -28,18 +41,18 @@ export function TopBar({ meta, connection, eventCount, starting, onStart }: Prop
         </div>
       </div>
 
-      <p className="topbar__hint">{hints[scenario]}</p>
+      <p className="topbar__hint">{isRuntime ? runtimeHints[scenario === "done" ? "done" : "idle"] : hints[scenario]}</p>
 
       <div className="topbar__status">
         <span className={`pill pill--${connection}`} title={meta?.store.detail}>
           <span className="pill__dot" />
-          {connection === "live" ? (meta?.store.mode === "mongodb" ? "MongoDB live" : "In-memory") : connection}
+          {connection === "live" ? pillLabel : connection}
         </span>
         <span className="topbar__meta mono" title="Project scope of the event stream">
           {meta?.projectId ?? "—"} · {eventCount} events
         </span>
         <button type="button" className="btn btn--primary" disabled={busy} onClick={onStart}>
-          {scenario === "done" || scenario === "idle" && eventCount > 0 ? "Run again" : "Start checkout API change"}
+          {buttonLabel}
         </button>
       </div>
     </header>

@@ -256,3 +256,20 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:
   .timeline__actor, .timeline__list li > :last-child { display: none; }
   .timeline__list .type { display: none; }
 }
+
+/* ---------- Runtime panel ---------- */
+.runtime { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.runtime h2 { font-size: 14px; }
+.fact { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.fact__label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.fact__label code { text-transform: none; color: var(--text); }
+.revision { display: flex; align-items: baseline; gap: 10px; font-size: 20px; font-weight: 700; }
+.revision__old { color: var(--muted); text-decoration: line-through; font-size: 15px; font-weight: 600; }
+.revision__current { color: var(--amber); }
+.facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0; border-top: 1px solid var(--border); padding-top: 10px; }
+.facts dt { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.facts dd { margin: 2px 0 0; font-size: 13px; font-weight: 600; }
+.runtime__events, .runtime__pending { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.runtime__events li { display: flex; align-items: center; gap: 6px; }
+.runtime__events .cite { margin-left: 0; }
+.pending-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--muted); margin-right: 4px; }

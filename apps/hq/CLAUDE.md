@@ -2,7 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Context Plane HQ is the 3D visualization for Context Plane (hackathon project; the agent runtime lives in a separate repo, `Simardeep27/ContextPlane`). It renders observable agent work from an event log in MongoDB — never model reasoning.
+Context Plane HQ (`apps/hq`, workspace `@context-plane/hq`) is the 3D demo surface for Context Plane (MVP-08). It renders observable agent work — never model reasoning — from one of two sources:
+
+- **Runtime mode** (`CONTEXT_API_URL` set): `server/runtime.ts` polls the MVP-03 Context API (`/v1/projects/project_mvp_02/{events,projection}`, `x-demo-session` header) and streams `runtime` SSE messages; the client builds the view with `shared/runtime.ts#viewFromRuntime`. `POST /api/runtime/publish` forwards Dev B's idempotent publication. Scripted endpoints return 409 in this mode.
+- **Scripted mode** (default): the original checkout-API demo driven by `server/scenario.ts` and HQ's own `hq_events` store.
 
 ## Commands
 

@@ -26,6 +26,26 @@ back to polling.
 
 Production-style: `npm run build && npm start` serves the UI and API on `:8787`.
 
+## Runtime mode (MVP-08)
+
+Point HQ at the Context Plane runtime instead of the scripted demo:
+
+```sh
+# terminal 1, repo root: the MVP-03 Context API on Atlas
+PORT=3001 node --env-file=.env apps/api/dist/server.js     # after npm run build
+# terminal 2: HQ reading that API
+CONTEXT_API_URL=http://localhost:3001 npm run dev -w @context-plane/hq
+```
+
+HQ polls the API's projection and events (never MongoDB directly), maps Dev A
+to the Orders character and Dev B to Billing, and shows the dependency
+revision (N vs N+1), artifact and evidence, policy epoch, projection revision,
+runs, and which runtime pieces are not reported yet. "Dev B publishes N+1"
+sends the scenario's idempotent publication through the API. Agent state comes
+only from stored runs and addressed messages; refreshing rebuilds the page from
+persisted data. Set `CONTEXT_PLANE_DATABASE` on the API to use a separate
+database from the shared `context_plane_poc`.
+
 ## Demo script (about 1 minute)
 
 1. Click **Start checkout API change**. Orders proposes the v2 change, and Billing and Notifications light up as affected.

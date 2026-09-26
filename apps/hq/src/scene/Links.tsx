@@ -71,25 +71,34 @@ function Packet({ from, to, startedAt }: { from: AgentKey; to: AgentKey; started
   );
 }
 
-// Messages and change proposals that arrived live travel along their link.
-export function Packets({ events, live }: { events: readonly HQEvent[]; live: LiveReceipts }) {
+// Messages, change proposals, and link activity that arrived live travel
+// along their link. Keys are `${eventId}:${from}->${to}` so the same hop is
+// drawn once whichever source reports it.
+export function Packets({ events, links, live }: { events: readonly HQEvent[]; links: readonly LinkView[]; live: LiveReceipts }) {
   const now = performance.now();
-  const packets: { key: string; from: AgentKey; to: AgentKey; startedAt: number }[] = [];
+  const packets = new Map<string, { from: AgentKey; to: AgentKey; startedAt: number }>();
+  const add = (eventId: string, from: AgentKey, to: AgentKey, startedAt: number) => {
+    if (from !== to) packets.set(`${eventId}:${from}->${to}`, { from, to, startedAt });
+  };
+  const recent = (eventId: string) => {
+    const receivedAt = live.get(eventId);
+    return receivedAt !== undefined && now - receivedAt <= liveWindowMs ? receivedAt : undefined;
+  };
   for (const event of events) {
-    const receivedAt = live.get(event.eventId);
-    if (receivedAt === undefined || now - receivedAt > liveWindowMs) continue;
-    if (event.type === "message.sent" && event.payload.from !== event.payload.to) {
-      packets.push({ key: event.eventId, from: event.payload.from, to: event.payload.to, startedAt: receivedAt });
-    }
+    const receivedAt = recent(event.eventId);
+    if (receivedAt === undefined) continue;
+    if (event.type === "message.sent") add(event.eventId, event.payload.from, event.payload.to, receivedAt);
     if (event.type === "change.proposed") {
-      event.payload.affected.forEach((to, index) =>
-        packets.push({ key: `${event.eventId}:${to}`, from: event.payload.agent, to, startedAt: receivedAt + index * 150 }),
-      );
+      event.payload.affected.forEach((to, index) => add(event.eventId, event.payload.agent, to, receivedAt + index * 150));
     }
+  }
+  for (const link of links) {
+    const receivedAt = recent(link.lastEventId);
+    if (receivedAt !== undefined) add(link.lastEventId, link.from, link.to, receivedAt);
   }
   return (
     <>
-      {packets.map(({ key, ...packet }) => (
+      {[...packets].map(([key, packet]) => (
         <Packet key={key} {...packet} />
       ))}
     </>

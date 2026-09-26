@@ -93,7 +93,7 @@ export function HQScene({ view, events, live, selected, onSelect }: Props) {
 
       <Core lastLiveAt={lastLiveAt} />
       <Links links={view.links} live={live} />
-      <Packets events={recent} live={live} />
+      <Packets events={recent} links={view.links} live={live} />
       {agentKeys.map((key) => (
         <AgentCharacter
           key={key}

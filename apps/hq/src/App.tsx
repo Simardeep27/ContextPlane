@@ -7,6 +7,7 @@ import { stateColors } from "./scene/layout.ts";
 import { ApprovalCard } from "./ui/ApprovalCard.tsx";
 import { Inspector } from "./ui/Inspector.tsx";
 import { ManagerPanel } from "./ui/ManagerPanel.tsx";
+import { RuntimePanel } from "./ui/RuntimePanel.tsx";
 import { Timeline } from "./ui/Timeline.tsx";
 import { TopBar } from "./ui/TopBar.tsx";
 import { useEventStream, type Meta } from "./useEventStream.ts";
@@ -23,7 +24,7 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export function App() {
-  const { meta, events, view, live, connection, followProject } = useEventStream();
+  const { meta, events, runtime, view, live, connection, followProject } = useEventStream();
   const [selected, setSelected] = useState<AgentKey | null>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [timelineFilter, setTimelineFilter] = useState<AgentKey | null>(null);
@@ -36,6 +37,16 @@ export function App() {
   const start = async () => {
     setStarting(true);
     setError(null);
+    if (meta?.source === "runtime") {
+      try {
+        await post("/api/runtime/publish");
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setStarting(false);
+      }
+      return;
+    }
     try {
       const next = await post<Meta>("/api/scenario/start");
       setSelected(null);
@@ -70,6 +81,7 @@ export function App() {
       />
 
       <div className="left-column">
+        {runtime && <RuntimePanel runtime={runtime} onCite={cite} />}
         {pending.map((request) => (
           <ApprovalCard
             key={request.accessRequestId}

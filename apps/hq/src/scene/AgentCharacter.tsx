@@ -174,7 +174,7 @@ export function AgentCharacter({ agent, selected, pulseAt, hasPendingApproval, o
           onClick={onSelect}
         >
           <span className="agent-label__name">{profile.name}</span>
-          <span className="agent-label__employee">{profile.employee}</span>
+          <span className="agent-label__employee">{agent.employee ?? profile.employee}</span>
           <span className="agent-label__state">
             {icon ? <span className="agent-label__icon">{icon}</span> : <span className="agent-label__dot" />}
             {stateLabels[agent.state]}

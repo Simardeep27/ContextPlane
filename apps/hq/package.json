@@ -1,5 +1,5 @@
 {
-  "name": "context-plane-hq",
+  "name": "@context-plane/hq",
   "version": "0.0.0",
   "private": true,
   "description": "Live 3D command center for work performed by AI agents, backed by MongoDB event history",
@@ -23,7 +23,9 @@
     "react": "~19.3.0",
     "react-dom": "~19.3.0",
     "three": "^0.186.1",
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "@context-plane/contracts": "0.0.0",
+    "@context-plane/scenario": "0.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
