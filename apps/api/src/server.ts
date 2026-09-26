@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 
-import { connectStorage, DurablePersistenceAdapter } from "@context-plane/persistence";
+import { connectStorage, DurablePersistenceAdapter, impactOfChange } from "@context-plane/persistence";
 
 import { ContextApi } from "./context-api.js";
 import { createContextApiHandler } from "./http.js";
@@ -13,7 +13,9 @@ const connection = await connectStorage(database);
 await connection.storage.initialize();
 const api = new ContextApi(new DurablePersistenceAdapter(connection.storage));
 await api.initialize();
-const handle = createContextApiHandler(api);
+const impactOrg = process.env.CONTEXT_PLANE_ORG_ID;
+const handle = createContextApiHandler(api, impactOrg ? (projectId, coordinationScope, surface) =>
+  impactOfChange(connection.client.db(database), { orgId: impactOrg, projectId, coordinationScope }, surface) : undefined);
 
 const server = createServer(async (incoming, outgoing) => {
   try {
