@@ -1,3 +1,5 @@
+import { EvidenceCards } from '../evidence/EvidenceCards.tsx';
+import type { EvidenceRecord } from '../../shared/evidence.ts';
 import type { RuntimeSnapshot } from "../../shared/runtime.ts";
 import { clock } from "./format.ts";
 
@@ -11,6 +13,8 @@ const short = (hash: string) => (hash.length > 20 ? `${hash.slice(0, 15)}…${ha
 
 export function RuntimePanel({ runtime, onCite }: Props) {
   const { projection, events } = runtime;
+  const records = events.map(e => (e.payload as { evidenceView?: EvidenceRecord } | null)?.evidenceView)
+    .filter((r): r is EvidenceRecord => Boolean(r));
   const publications = events.filter((e) => e.type === "dependency.published");
 
   return (
@@ -71,8 +75,8 @@ export function RuntimePanel({ runtime, onCite }: Props) {
             </ul>
           )}
 
-          <p className="small muted">This adapter does not yet show exact staged/tested/published hash matching,
-            publication authorization, rule evaluation or activation evidence. A policy epoch alone does not prove improvement.</p>
+          <EvidenceCards records={records} />
+          <p className="small muted">Only recorded evidence is shown. A policy epoch alone does not prove improvement.</p>
           {projection.accessRequests.some((request) => request.status === "pending") &&
             <p className="small muted">Pending access requests are read only here; this adapter has no approval controls.</p>}
 

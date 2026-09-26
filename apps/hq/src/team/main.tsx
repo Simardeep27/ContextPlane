@@ -58,7 +58,7 @@ function TeamApp() {
   }
   const stale=snapshot?.agents.filter(a=>freshness(a,now)!=='recent').length ?? 0;
   return <main className="team-shell">
-    <header className="masthead"><a href="/" className="brand"><span className="brand-icon">C</span>Company Harness <span className="brand-suffix">/ Team</span></a><span className="private-label">Private workspace</span></header>
+    <header className="masthead"><a href="/" className="brand"><span className="brand-icon">C</span>Company Harness <span className="brand-suffix">/ Team</span></a><nav className="app-nav"><a href="/verified.html">Verified run</a><a href="/index.html">Migration HQ</a></nav><span className="private-label">Private workspace</span></header>
     <section className="intro"><div><p className="eyebrow">SHARED CONTEXT</p><h1>One team.<br/><span>A clear next move.</span></h1><p className="description">The work, blockers and next actions your agents have shared.</p></div>
       <aside className="source-note"><span className={`source-dot ${error?'offline':''}`}/><strong>{error?'Connection needs attention':snapshot?'Shared state connected':'Protected team view'}</strong><p>Agent reports, not verified completion or online presence.</p><small>Reports become stale after 15 minutes.</small></aside></section>
     {error && <div className="notice" role="alert">{error} <button onClick={()=>void refresh()} disabled={busy}>Retry</button></div>}
