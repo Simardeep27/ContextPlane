@@ -12,7 +12,7 @@ export function VerifiedRun() {
     return () => abort.abort(); }, []);
   const count = step ?? data?.records.length ?? 0; const records = data?.records.slice(0,count) ?? [];
   return <main className="verified-run">
-    <header><a href="/">← Live team</a><nav><a href="/index.html">Migration HQ</a></nav><span>RECORDED VERIFICATION</span></header>
+    <header><a href="/">← Live team</a><nav><a href="/index.html">Migration HQ</a> · <a href="/graph.html">Dependencies</a></nav><span>RECORDED VERIFICATION</span></header>
     <h1>Follow a change from proposal to proof.</h1>
     <p className="evidence-lead">Actual executor receipts from an isolated verification run. This is a historical replay, not current team work. Controls only navigate recorded events.</p>
     {error && <p role="alert">The verification record could not be loaded. Try refreshing.</p>}

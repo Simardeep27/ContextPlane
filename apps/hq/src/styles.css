@@ -273,3 +273,58 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:
 .runtime__events li { display: flex; align-items: center; gap: 6px; }
 .runtime__events .cite { margin-left: 0; }
 .pending-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--muted); margin-right: 4px; }
+
+/* ---------- Live team mode ---------- */
+.mode-switch { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.mode-switch a { color: var(--muted); text-decoration: none; }
+.mode-switch a:hover { color: var(--accent); }
+.mode-switch__tabs { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.mode-switch__tabs button { background: transparent; border: 0; padding: 6px 10px; cursor: pointer; color: var(--muted); font-size: 12px; }
+.mode-switch__tabs button.is-active { background: rgba(45, 212, 191, 0.16); color: var(--text); font-weight: 600; }
+.live-error { padding: 14px 16px; border-color: rgba(248, 113, 113, 0.5); }
+.live-error h2 { font-size: 14px; color: #fecaca; }
+.live-error p { font-size: 13px; margin-top: 6px; color: #cbd5e1; }
+.live-error__actions { display: flex; gap: 8px; margin-top: 10px; }
+.live-answer { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font-size: 13px; line-height: 1.45; }
+.live-answer:hover { color: var(--accent); }
+.legend a { color: var(--accent); }
+.brain-label, .pad-label { display: flex; flex-direction: column; align-items: center; text-align: center; white-space: nowrap; pointer-events: none; user-select: none; }
+.brain-label { padding: 6px 12px; border-radius: 12px; background: rgba(8, 12, 24, 0.82); border: 1px solid rgba(45, 212, 191, 0.5); }
+.brain-label strong { font-size: 14px; color: #99f6e4; }
+.brain-label span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.brain-label em { margin-top: 4px; font-size: 11px; font-style: normal; color: #cbd5e1; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.pad-label strong { font-size: 16px; }
+.pad-label span { font-size: 11px; color: var(--muted); }
+.live-label {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 3px 8px; border-radius: 9px; cursor: pointer; white-space: nowrap; user-select: none;
+  background: rgba(8, 12, 24, 0.82); border: 1px solid rgba(148, 163, 184, 0.22); border-top: 2px solid var(--state);
+}
+.live-label:hover, .live-label.is-selected { border-color: rgba(248, 250, 252, 0.6); border-top-color: var(--state); }
+.live-label__name { font-weight: 700; font-size: 11px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.live-label__state { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: var(--state); }
+.live-label__state .agent-label__dot { width: 6px; height: 6px; }
+.live-label__card {
+  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 4px; width: 260px; white-space: normal; text-align: left;
+  padding: 10px 12px; border-radius: 10px; background: var(--panel-solid); border: 1px solid var(--border);
+  font-size: 12px; line-height: 1.4; color: #cbd5e1; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.live-label__card b { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.app--live .pill { text-transform: none; }
+
+/* Live mode density fixes: clamp long optimizer / answer text, compact robot labels. */
+.app--live { --top: 108px; }
+.live-hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; min-width: 0; }
+.app--live .topbar__status { flex-wrap: wrap; justify-content: flex-end; }
+.app--live .answer__lines { max-height: 38vh; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; }
+.live-answer { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.brain-label em { display: block; white-space: nowrap; }
+.live-label { flex-direction: row; gap: 5px; padding: 2px 7px; border-radius: 999px; border-top-width: 1px; border-color: color-mix(in srgb, var(--state) 45%, transparent); }
+.live-label .agent-label__dot { width: 6px; height: 6px; flex-shrink: 0; }
+.live-label__name { font-size: 10px; max-width: 90px; }
+.live-label__head { font-size: 11px; font-weight: 600; color: var(--text); }
+.live-label__card > span:not(.live-label__head) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+@media (max-width: 960px) {
+  .app--live { --top: 176px; }
+}

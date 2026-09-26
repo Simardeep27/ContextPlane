@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { AgentKey } from "../shared/events.ts";
 import { stateLabels } from "../shared/projection.ts";
+import { LiveApp } from "./live/LiveApp.tsx";
 import { HQScene } from "./scene/HQScene.tsx";
 import { stateColors } from "./scene/layout.ts";
 import { ApprovalCard } from "./ui/ApprovalCard.tsx";
@@ -25,7 +26,35 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return data;
 }
 
+type Mode = "live" | "simulation";
+
+// "Live team" (default) polls /api/team; "Simulation" is the fictional playback.
 export function App() {
+  const [mode, setMode] = useState<Mode>(() => (location.hash === "#simulation" ? "simulation" : "live"));
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    history.replaceState(null, "", next === "simulation" ? "#simulation" : location.pathname + location.search);
+  };
+  const switcher = <ModeSwitch mode={mode} onChange={switchMode} />;
+  return mode === "live"
+    ? <LiveApp switcher={switcher} onSimulation={() => switchMode("simulation")} />
+    : <SimulationApp switcher={switcher} />;
+}
+
+function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => void }) {
+  return (
+    <nav className="mode-switch" aria-label="HQ mode">
+      <div className="mode-switch__tabs" role="tablist">
+        <button type="button" role="tab" aria-selected={mode === "live"} className={mode === "live" ? "is-active" : ""} onClick={() => onChange("live")}>Live team</button>
+        <button type="button" role="tab" aria-selected={mode === "simulation"} className={mode === "simulation" ? "is-active" : ""} onClick={() => onChange("simulation")}>Simulation</button>
+      </div>
+      <a href="/team.html">Team view</a>
+      <a href="/verified.html">Verified run</a>
+    </nav>
+  );
+}
+
+function SimulationApp({ switcher }: { switcher: ReactNode }) {
   const { meta, events, runtime, view, live, connection, followProject } = useEventStream();
   const [selected, setSelected] = useState<AgentKey | null>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
@@ -70,7 +99,9 @@ export function App() {
         eventCount={view.timeline.length}
         starting={starting}
         onStart={start}
-      />
+      >
+        {switcher}
+      </TopBar>
 
       <div className="left-column">
         {runtime && <RuntimePanel runtime={runtime} onCite={cite} />}

@@ -19,7 +19,7 @@ function fixture(t) {
 const start = { kind: 'SessionStart', key: 'start', summary: 'Observed session start' };
 const pulse = key => ({ kind: 'Heartbeat', key, summary: 'Process alive; outcome unverified' });
 
-test('heartbeat preserves actual activity and failure status; stopped/ended sessions stay stopped', async t => {
+test('heartbeat preserves actual activity and failure status; waiting/ended sessions get no heartbeat', async t => {
   const { box, deliver } = fixture(t);
   assert.equal(await box.enqueue(pulse('uncovered')), null);
   await box.enqueue(start); await deliver(box);
@@ -75,10 +75,10 @@ test('overlapping ticks are skipped and shutdown drains an in-flight delivery', 
   await tick(); assert.equal(deliveries, 1);
 });
 
-test('pending native reports and stopped activity cannot be overwritten by a heartbeat', async t => {
+test('pending native reports and waiting activity cannot be overwritten by a heartbeat', async t => {
   const { box, deliver } = fixture(t); await box.enqueue(start);
   assert.equal(await box.enqueue(pulse('pending')), null); await deliver(box);
   await Promise.all([box.enqueue({ kind: 'Stop', key: 'stop', summary: 'Turn stopped' }), box.enqueue(pulse('race'))]);
-  assert.equal(box.read().pending.at(-1).surface.content.status, 'stopped');
+  assert.equal(box.read().pending.at(-1).surface.content.status, 'idle');
   await deliver(box); assert.equal(await box.enqueue(pulse('after-stop')), null);
 });

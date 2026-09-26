@@ -72,11 +72,13 @@ identity. The base identity is metadata, not an authentication credential.
 Shared-token trust limitations from the sync contract still apply.
 
 A tool completion means the client emitted a completion hook. `Stop` means the
-turn stopped, and `SessionEnd` means the session ended. None marks the task
-verified or `done`. These are `client_observation` reports with
-`outcomeVerified: false`; they are not controlled executor receipts. The legacy
-`work_finished` event type is used for a stopped boundary, explicitly qualified
-by its summary and `stopped` status. The launcher additionally records its
+turn stopped and the agent is waiting for input: it reports a `progress` event
+with `waiting: true` and `idle` status, never finished. `SessionEnd` means the
+session ended. None marks the task verified or `done`. These are
+`client_observation` reports with `outcomeVerified: false`; they are not
+controlled executor receipts. The legacy `work_finished` event type is used only
+for the SessionEnd boundary, explicitly qualified by its summary and `stopped`
+status. The launcher additionally records its
 observed process exit. No timestamp proves continued liveness.
 
 ## Delivery, interruption and bounds
@@ -85,7 +87,8 @@ observed process exit. No timestamp proves continued liveness.
 
 Both `launch.mjs` (Claude) and `launch-codex.mjs` (Codex) now attempt a
 `heartbeat` report every 60 seconds through the existing MCP outbox while their
-child process is alive and its last covered observation is working or blocked.
+child process is alive and its last covered observation is working or blocked
+(not idle after Stop).
 Start through the launcher commands above to enable it. No server cron, service
 deployment, detached daemon, new credentials, or model call is needed.
 

@@ -2,8 +2,7 @@
 
 Every agent doing authorized ContextPlane work for a teammate follows this
 contract. It uses the existing MCP tools and shared Atlas database. It adds no
-daemon, hook, collection or new product feature. The current Company Harness sprint priority in AGENTS.md applies; only explicitly
-authorized issue lanes are active.
+daemon, hook or new product feature. The current Company Harness sprint priority in AGENTS.md applies.
 
 **Read shared context before work. Report meaningful actions as durable messages.
 Publish current state after progress. Never claim synchronization before it succeeds.**
@@ -46,6 +45,14 @@ After merge, report the main commit and refresh shared context. No Hivemind mirr
 4. Record a `work_started` report and publish your current `work-status`.
    On reconnect, replay pending reports first, then refresh shared context.
 
+## Company brain
+
+At start, `recall` with `kinds: ["principle"]` (also returned by `get_context`
+as `brain`) and follow the active principles. When you learn something a
+teammate needs, `remember` an `insight` citing its `source_ids`. Brain entries
+are derived context, not proof; never write a `principle` unless you are a
+`*:primary` identity acting for its person. See [COMPANY_BRAIN.md](COMPANY_BRAIN.md).
+
 ## Report events through existing messages
 
 Use `send_message` to `shivraj:primary` after a meaningful work boundary:
@@ -57,6 +64,13 @@ Use `send_message` to `shivraj:primary` after a meaningful work boundary:
 | `blocked` | Work cannot continue; identify the needed owner or input |
 | `checks_finished` | A check actually ran; include command, result and evidence |
 | `handoff` / `work_finished` | Work is handed off or reaches its stated completion condition |
+
+Finishing is required, not optional. When your task reaches its completion
+condition, send a `work_finished` event whose `summary` is one line stating what
+was delivered, then publish `work-status` with status `done` (or `stopped`).
+Include the `files` you touched so teammates can see what is now free. The HQ
+team view shows an agent as finished only from these signals; an agent that goes
+quiet without one shows as idle after 15 minutes.
 
 Report outcomes and useful context, not every token, keystroke or shell command.
 Never invent progress. Do not upload credentials, raw private conversations,

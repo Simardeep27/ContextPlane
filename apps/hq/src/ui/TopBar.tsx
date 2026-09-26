@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { Connection, Meta } from "../useEventStream.ts";
 
 const hints: Record<Meta["scenario"], string> = {
@@ -6,8 +8,8 @@ const hints: Record<Meta["scenario"], string> = {
   awaiting_approval: "Simulation paused. Choose a fictional approval or denial to continue.",
   done: "Simulation complete. Timeline entries are examples, not execution receipts.",
 };
-interface Props { meta: Meta | null; connection: Connection; eventCount: number; starting: boolean; onStart: () => void }
-export function TopBar({ meta, connection, eventCount, starting, onStart }: Props) {
+interface Props { meta: Meta | null; connection: Connection; eventCount: number; starting: boolean; onStart: () => void; children?: ReactNode }
+export function TopBar({ meta, connection, eventCount, starting, onStart, children }: Props) {
   const scenario = meta?.scenario ?? "idle";
   const isRuntime = meta?.source === "runtime";
   const busy = !meta?.canMutate || scenario === "running" || scenario === "awaiting_approval" || starting;
@@ -28,6 +30,7 @@ export function TopBar({ meta, connection, eventCount, starting, onStart }: Prop
         {!isRuntime && <button type="button" className="btn btn--primary" disabled={busy} onClick={onStart}>
           {scenario === "done" ? "Replay simulation" : "Start simulation"}
         </button>}
+        {children}
       </div>
     </header>
   );
