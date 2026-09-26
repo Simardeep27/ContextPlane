@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { describe, it } from 'node:test';
-import type { EventEnvelope, LeaseToken, OperationKey, OperationReceipt, PersistenceAdapter,
+import type { CandidateHash, ChangeCheckVersion, CommitStep, EventEnvelope, LeaseToken, OperationKey, OperationReceipt, PersistenceAdapter,
   ProjectScope, RunCheckpoint, RunId } from '@context-plane/contracts';
 import { blockedResumedCompletedEvents, blockedResumedCompletedProjections, protectedReadReceipt } from '@context-plane/contracts/fixtures';
 import { DurablePersistenceAdapter, formatCursor } from '../src/index.js';
@@ -181,6 +181,33 @@ export function conformance(name: string, setup: () => Promise<Harness>) {
       assert.equal((await adapter.readEvents(s)).length, 1);
       assert.equal(await adapter.readReceipt(s, protectedReadReceipt.operationKey), null);
       assert.deepEqual(await adapter.readProjection(s), p);
+    });
+    it('atomically commits one exact candidate tuple and rejects mixed versions', async () => {
+      const { adapter, s } = await fixture(); const lease = await claim(adapter, s);
+      const version: ChangeCheckVersion = {
+        candidateHash: 'candidate-stable' as CandidateHash,
+        dependencyRevision: 2,
+        policyEpoch: 1,
+      };
+      const mismatched: ChangeCheckVersion = { ...version, dependencyRevision: 1 };
+      const p = { ...blockedResumedCompletedProjections[0], scope: s, candidateVersion: version };
+      const step: CommitStep = {
+        candidateVersion: version,
+        lease,
+        event: { ...event(s), candidateVersion: version },
+        receipt: { ...receipt(s, lease), candidateVersion: mismatched },
+        checkpoint: { ...checkpoint(s, lease), lastEventCursor: '000001', candidateVersion: version },
+        projection: { value: p, expectedRevision: 0 },
+      };
+      await rejects(adapter.commitStep(step), 'CONFLICT');
+      assert.deepEqual(await adapter.readEvents(s), []);
+      assert.equal(await adapter.readReceipt(s, protectedReadReceipt.operationKey), null);
+      await adapter.commitStep({ ...step, receipt: { ...receipt(s, lease), candidateVersion: version } });
+      assert.equal((await adapter.readCheckpoint(s, runId))?.candidateVersion?.candidateHash, version.candidateHash);
+      assert.equal((await adapter.readProjection(s))?.candidateVersion?.candidateHash, version.candidateHash);
+      assert.equal((await adapter.readEvents(s))[0]?.candidateVersion?.candidateHash, version.candidateHash);
+      assert.equal((await adapter.readReceipt(s, protectedReadReceipt.operationKey))?.candidateVersion?.candidateHash,
+        version.candidateHash);
     });
     it('rejects unreceipted completion and future event references', async () => {
       const { adapter, s } = await fixture(); const lease = await claim(adapter, s);

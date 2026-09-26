@@ -13,10 +13,18 @@ export type AccessRequestId = Brand<string, "AccessRequestId">;
 export type OperationKey = Brand<string, "OperationKey">;
 export type EvidenceId = Brand<string, "EvidenceId">;
 export type CandidateHash = Brand<string, "CandidateHash">;
+export type ArtifactHash = Brand<string, "ArtifactHash">;
+export type DependencyId = Brand<string, "DependencyId">;
+export type PolicyId = Brand<string, "PolicyId">;
+export type PolicyHash = Brand<string, "PolicyHash">;
+export type CheckResultId = Brand<string, "CheckResultId">;
 
-export interface ProjectScope {
-  readonly orgId: OrgId;
-  readonly projectId: ProjectId;
+export interface ProjectScope<
+  Org extends OrgId = OrgId,
+  Project extends ProjectId = ProjectId,
+> {
+  readonly orgId: Org;
+  readonly projectId: Project;
 }
 
 export interface ActorRef {
@@ -43,6 +51,7 @@ export interface CommandEnvelope<
 export interface EventEnvelope<
   Type extends string = string,
   Payload = unknown,
+  Version extends ChangeCheckVersion = ChangeCheckVersion,
 > {
   readonly eventId: EventId;
   readonly type: Type;
@@ -53,6 +62,8 @@ export interface EventEnvelope<
   readonly cursor: string;
   readonly occurredAt: string;
   readonly payload: Payload;
+  /** Present for events that make a decision about an exact candidate. */
+  readonly candidateVersion?: Version;
 }
 
 export type RunStatus =
@@ -62,14 +73,21 @@ export type RunStatus =
   | "completed"
   | "failed";
 
-export interface ChangeCheckVersion {
-  readonly candidateHash: CandidateHash;
-  readonly dependencyRevision: number;
-  readonly policyEpoch: number;
+export interface ChangeCheckVersion<
+  Candidate extends CandidateHash = CandidateHash,
+  DependencyRevision extends number = number,
+  PolicyEpoch extends number = number,
+> {
+  readonly candidateHash: Candidate;
+  readonly dependencyRevision: DependencyRevision;
+  readonly policyEpoch: PolicyEpoch;
 }
 
-export interface RunCheckpoint {
-  readonly scope: ProjectScope;
+export interface RunCheckpoint<
+  Version extends ChangeCheckVersion = ChangeCheckVersion,
+  Scope extends ProjectScope = ProjectScope,
+> {
+  readonly scope: Scope;
   readonly runId: RunId;
   readonly checkpointId: string;
   readonly revision: number;
@@ -79,9 +97,11 @@ export interface RunCheckpoint {
   readonly nextAction: string | null;
   readonly completedOperationKeys: readonly OperationKey[];
   readonly updatedAt: string;
+  /** Present while this checkpoint is advancing a candidate workflow. */
+  readonly candidateVersion?: Version;
 }
 
-export interface OperationReceipt {
+export interface OperationReceipt<Version extends ChangeCheckVersion = ChangeCheckVersion> {
   readonly scope: ProjectScope;
   readonly runId: RunId;
   readonly operationKey: OperationKey;
@@ -93,6 +113,8 @@ export interface OperationReceipt {
   readonly resultHash?: string;
   readonly startedAt: string;
   readonly completedAt?: string;
+  /** Present when the effect operates on an exact candidate. */
+  readonly candidateVersion?: Version;
 }
 
 export interface AccessRequestProjection {
@@ -126,7 +148,7 @@ export interface TimelineEntry {
   readonly evidenceIds: readonly EvidenceId[];
 }
 
-export interface ProjectProjection {
+export interface ProjectProjection<Version extends ChangeCheckVersion = ChangeCheckVersion> {
   readonly scope: ProjectScope;
   readonly revision: number;
   readonly eventCursor: string;
@@ -134,4 +156,88 @@ export interface ProjectProjection {
   readonly runs: readonly RunProjection[];
   readonly accessRequests: readonly AccessRequestProjection[];
   readonly timeline: readonly TimelineEntry[];
+  /** The exact candidate tuple represented by a candidate-specific snapshot. */
+  readonly candidateVersion?: Version;
+}
+
+/** A bounded pointer to immutable evidence; large evidence bodies live elsewhere. */
+export interface EvidenceReference {
+  readonly evidenceId: EvidenceId;
+  readonly kind: string;
+  readonly contentHash: string;
+}
+
+/** An immutable publication of one dependency revision. */
+export interface DependencyRevision {
+  readonly scope: ProjectScope;
+  readonly dependencyId: DependencyId;
+  readonly revision: number;
+  readonly artifactHash: ArtifactHash;
+  readonly evidence: readonly EvidenceReference[];
+  readonly publishedAt: string;
+}
+
+/** The exact artifact set staged for one candidate/version tuple. */
+export interface StagedCandidate<Version extends ChangeCheckVersion = ChangeCheckVersion> {
+  readonly scope: ProjectScope;
+  readonly runId: RunId;
+  readonly revision: number;
+  readonly version: Version;
+  readonly operationKey: OperationKey;
+  readonly artifactHashes: readonly ArtifactHash[];
+  readonly evidence: readonly EvidenceReference[];
+  readonly stagedAt: string;
+}
+
+/** Deterministic registered-check evidence for one exact staged candidate. */
+export interface CheckResult<Version extends ChangeCheckVersion = ChangeCheckVersion> {
+  readonly scope: ProjectScope;
+  readonly runId: RunId;
+  readonly checkResultId: CheckResultId;
+  readonly revision: number;
+  readonly stagedCandidateRevision: number;
+  readonly version: Version;
+  readonly registeredChecks: readonly string[];
+  readonly passed: boolean;
+  readonly evidence: readonly EvidenceReference[];
+  readonly completedAt: string;
+}
+
+/** Authorization to publish only the tuple checked at the named result revision. */
+export interface PublicationAuthorization<Version extends ChangeCheckVersion = ChangeCheckVersion> {
+  readonly scope: ProjectScope;
+  readonly runId: RunId;
+  readonly revision: number;
+  readonly version: Version;
+  readonly checkResultId: CheckResultId;
+  readonly checkResultRevision: number;
+  readonly evidence: readonly EvidenceReference[];
+  readonly authorizedAt: string;
+}
+
+/** A restricted, non-executable policy proposed for deterministic evaluation. */
+export interface PolicyCandidate {
+  readonly scope: ProjectScope;
+  readonly targetAgentId: AgentId;
+  readonly policyHash: PolicyHash;
+  readonly revision: number;
+  readonly basePolicyEpoch: number;
+  readonly datasetHash: string;
+  readonly rule: Readonly<Record<string, unknown>>;
+  readonly evidence: readonly EvidenceReference[];
+  readonly proposedAt: string;
+}
+
+/** An immutable promoted policy version. Promotion advances the project epoch. */
+export interface PolicyVersion {
+  readonly scope: ProjectScope;
+  readonly policyId: PolicyId;
+  readonly targetAgentId: AgentId;
+  readonly policyHash: PolicyHash;
+  readonly revision: number;
+  readonly policyEpoch: number;
+  readonly datasetHash: string;
+  readonly rule: Readonly<Record<string, unknown>>;
+  readonly evidence: readonly EvidenceReference[];
+  readonly promotedAt: string;
 }

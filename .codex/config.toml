@@ -1,0 +1,4 @@
+[mcp_servers.context_plane]
+url = "https://context-plane-brain.buddhsen-work.workers.dev/mcp"
+http_headers_helper = "/Users/ssethi/Documents/nyny/scripts/context-plane-headers.mjs"
+enabled = true

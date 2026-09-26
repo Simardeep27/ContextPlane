@@ -62,7 +62,7 @@ must be derived by the trusted API. `acquireLease` creates the lease record if
 needed; **the caller decides whether the run should execute**, including blocked,
 completed, or failed runs. There is no queue scanner or automatic resumption.
 
-## Contract methods and additions
+## Contract methods
 
 | Method | Behavior |
 |---|---|
@@ -74,19 +74,17 @@ completed, or failed runs. There is no queue scanner or automatic resumption.
 | `saveReceipt(receipt, lease)` | Fenced insert; allows `started` → terminal. A terminal record is immutable. |
 | `acquireLease(scope, runId)` | One winner; expired reclaim increments the generation. |
 | `renewLease(scope, lease)` | Same generation, extended expiry, or `null` for lost/expired ownership. |
-| `readCheckpoint(scope, runId)` **addition** | Retrieves progress after restart. |
-| `saveProjection(projection, expectedRevision)` **addition** | Compare-and-set on prior projection revision; rejects cursor/policy-epoch regressions. |
-| `commitStep({checkpoint, lease, event?, receipt?, projection?})` **addition** | One transaction across event, receipt, checkpoint, and optional projection. |
+| `readCheckpoint(scope, runId)` | Retrieves progress after restart. |
+| `saveProjection(projection, expectedRevision)` | Compare-and-set on prior projection revision; rejects cursor/policy-epoch regressions. |
+| `commitStep({checkpoint, lease, candidateVersion?, event?, receipt?, projection?})` | One transaction across an exact candidate's event, receipt, checkpoint, and optional projection. |
 
-`ScopedLeaseToken` adds `scope` to the shared `LeaseToken`. Pass back the **entire
-returned token**. Dropping scope is rejected. The adapter also checks its private
+The shared `LeaseToken` includes its project scope. Pass back the **entire
+returned token**. Dropping or changing scope is rejected. The adapter also checks its private
 process owner ID; stealing another adapter's token does not transfer ownership.
 These tokens are internal capabilities, not substitutes for API authorization.
 
-Shared contracts remain unchanged. Suggested follow-up for Simar: incorporate
-scoped tokens, checkpoint reads, atomic steps, and projection writes into the
-shared interface. Grant/policy transaction entrypoints beyond projection CAS are
-deferred until caller contracts exist. `appendEvent` has no lease in the shared
+Grant/policy transaction entrypoints beyond projection CAS are deferred until
+caller behavior exists. `appendEvent` has no lease in the shared
 interface, so it must remain trusted API ingestion; do not expose it as a worker
 domain tool or use it for worker effects.
 

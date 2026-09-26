@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { EventEnvelope, LeaseToken, OperationKey, OperationReceipt, PersistenceAdapter,
+import type { ChangeCheckVersion, CommitStep, EventEnvelope, LeaseToken, OperationKey, OperationReceipt, PersistenceAdapter,
   ProjectProjection, ProjectScope, RunCheckpoint, RunId } from '@context-plane/contracts';
 import type { Storage, StorageTransaction } from './storage.js';
 import { cursorNumber, hash, identifier, integer, requireThat, sameScope, scopedKey, timestamp } from './validation.js';
@@ -10,15 +10,6 @@ export interface AdapterOptions {
   /** A unique process incarnation, not a stable host name. Defaults to a UUID. */
   ownerId?: string;
   leaseDurationMs?: number;
-}
-/** Additive token field prevents same-run/generation tokens crossing projects. */
-export interface ScopedLeaseToken extends LeaseToken { readonly scope: ProjectScope }
-export interface CommitStep {
-  checkpoint: RunCheckpoint;
-  lease: LeaseToken;
-  event?: EventEnvelope;
-  receipt?: OperationReceipt;
-  projection?: { value: ProjectProjection; expectedRevision: number };
 }
 
 /** Implements wireframe e6012cd. Authorization and workflow decisions stay in core/API. */
@@ -34,12 +25,12 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
   private project(tx: StorageTransaction): Promise<ProjectState> {
     return tx.get<ProjectState>('projects', 'state').then(state => state ?? { cursor: 0, projection: null });
   }
-  private token(scope: ProjectScope, runId: RunId, run: RunState): ScopedLeaseToken {
-    return { scope: { orgId: scope.orgId, projectId: scope.projectId }, runId, generation: run.generation, expiresAt: run.expiresAt };
+  private token<Scope extends ProjectScope>(scope: Scope, runId: RunId, run: RunState): LeaseToken<Scope> {
+    return { scope: structuredClone(scope), runId, generation: run.generation, expiresAt: run.expiresAt };
   }
   private validateLease(lease: LeaseToken, scope?: ProjectScope) {
     identifier(lease?.runId); integer(lease?.generation, 1); timestamp(lease?.expiresAt);
-    if (scope) sameScope(scope, (lease as ScopedLeaseToken).scope);
+    if (scope) sameScope(scope, lease.scope);
   }
   private async fenced(tx: StorageTransaction, runId: RunId, lease: LeaseToken): Promise<RunState> {
     this.validateLease(lease); requireThat(lease.runId === runId, 'LEASE_LOST');
@@ -48,7 +39,7 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
       Date.parse(run.expiresAt) > tx.now.getTime(), 'LEASE_LOST');
     return run;
   }
-  async acquireLease(scope: ProjectScope, runId: RunId): Promise<ScopedLeaseToken | null> {
+  async acquireLease<Scope extends ProjectScope>(scope: Scope, runId: RunId): Promise<LeaseToken<Scope> | null> {
     scopedKey(scope, runId);
     return this.storage.transaction(scope, async tx => {
       const previous = await tx.get<RunState>('runs', runId);
@@ -58,7 +49,7 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
       await tx.put('runs', runId, run); return this.token(scope, runId, run);
     });
   }
-  async renewLease(scope: ProjectScope, lease: LeaseToken): Promise<ScopedLeaseToken | null> {
+  async renewLease<Scope extends ProjectScope>(scope: Scope, lease: LeaseToken<Scope>): Promise<LeaseToken<Scope> | null> {
     scopedKey(scope, lease?.runId); this.validateLease(lease, scope);
     return this.storage.transaction(scope, async tx => {
       const run = await tx.get<RunState>('runs', lease.runId);
@@ -73,6 +64,7 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
     requireThat(['human', 'agent', 'system'].includes(event.actor?.kind));
     identifier(event.actor.id);
     requireThat(['pm', 'orders', 'billing', 'notifications', 'system'].includes(event.actor.role));
+    if (event.candidateVersion) this.validateCandidateVersion(event.candidateVersion);
     hash(event);
   }
   private async append(tx: StorageTransaction, event: EventEnvelope): Promise<void> {
@@ -102,6 +94,7 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
     requireThat(checkpoint.nextAction === null || typeof checkpoint.nextAction === 'string');
     requireThat(Array.isArray(checkpoint.completedOperationKeys) && checkpoint.completedOperationKeys.length <= 100);
     checkpoint.completedOperationKeys.forEach(identifier); hash(checkpoint);
+    if (checkpoint.candidateVersion) this.validateCandidateVersion(checkpoint.candidateVersion);
   }
   private async checkpoint(tx: StorageTransaction, checkpoint: RunCheckpoint, lease: LeaseToken): Promise<void> {
     const previous = await tx.get<RunState>('runs', checkpoint.runId);
@@ -134,7 +127,9 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
     }
     if (receipt.resultHash !== undefined) identifier(receipt.resultHash);
     requireThat(Array.isArray(receipt.evidenceIds) && receipt.evidenceIds.length <= 100);
-    receipt.evidenceIds.forEach(identifier); hash(receipt);
+    receipt.evidenceIds.forEach(identifier);
+    if (receipt.candidateVersion) this.validateCandidateVersion(receipt.candidateVersion);
+    hash(receipt);
   }
   private receiptHash(receipt: OperationReceipt): string {
     const { leaseGeneration, ...effect } = receipt; return hash(effect);
@@ -161,6 +156,16 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
     scopedKey(projection.scope, 'state'); integer(expectedRevision); integer(projection.revision, 1);
     integer(projection.policyEpoch); cursorNumber(projection.eventCursor); hash(projection);
     requireThat(projection.revision > expectedRevision, 'CONFLICT');
+    if (projection.candidateVersion) this.validateCandidateVersion(projection.candidateVersion);
+  }
+  private validateCandidateVersion(version: ChangeCheckVersion) {
+    identifier(version?.candidateHash); integer(version?.dependencyRevision); integer(version?.policyEpoch);
+  }
+  private sameCandidateVersion(expected: ChangeCheckVersion, actual?: ChangeCheckVersion) {
+    requireThat(actual, 'CONFLICT');
+    requireThat(actual.candidateHash === expected.candidateHash &&
+      actual.dependencyRevision === expected.dependencyRevision &&
+      actual.policyEpoch === expected.policyEpoch, 'CONFLICT');
   }
   private async projection(tx: StorageTransaction, projection: ProjectProjection, expectedRevision: number) {
     const project = await this.project(tx);
@@ -180,9 +185,21 @@ export class DurablePersistenceAdapter implements PersistenceAdapter {
     scopedKey(scope, 'state'); return (await this.storage.read<ProjectState>(scope, 'projects', 'state'))?.projection ?? null;
   }
   /** Atomically save one worker step. No runner/model calls inside this method. */
-  async commitStep(input: CommitStep): Promise<void> {
+  async commitStep<Version extends ChangeCheckVersion, Scope extends ProjectScope>(
+    input: CommitStep<Version, Scope>,
+  ): Promise<void> {
     const step = structuredClone(input); const scope = step.checkpoint.scope;
     this.validateCheckpoint(step.checkpoint, step.lease);
+    const hasComponentVersion = Boolean(step.checkpoint.candidateVersion || step.event?.candidateVersion ||
+      step.receipt?.candidateVersion || step.projection?.value.candidateVersion);
+    requireThat(Boolean(step.candidateVersion) === hasComponentVersion, 'CONFLICT');
+    if (step.candidateVersion) {
+      this.validateCandidateVersion(step.candidateVersion);
+      this.sameCandidateVersion(step.candidateVersion, step.checkpoint.candidateVersion);
+      if (step.event) this.sameCandidateVersion(step.candidateVersion, step.event.candidateVersion);
+      if (step.receipt) this.sameCandidateVersion(step.candidateVersion, step.receipt.candidateVersion);
+      if (step.projection) this.sameCandidateVersion(step.candidateVersion, step.projection.value.candidateVersion);
+    }
     if (step.event) {
       this.validateEvent(step.event); sameScope(scope, step.event.scope);
       requireThat(step.event.runId === step.checkpoint.runId && step.event.cursor === step.checkpoint.lastEventCursor);

@@ -11,21 +11,53 @@ import type {
 } from "./contracts.js";
 import type { AgentContextPacket, ToolDefinition } from "./tools.js";
 
-export interface LeaseToken {
+export interface LeaseToken<Scope extends ProjectScope = ProjectScope> {
+  readonly scope: Scope;
   readonly runId: RunId;
   readonly generation: number;
   readonly expiresAt: string;
+}
+
+export interface ProjectionWrite<Version extends ChangeCheckVersion = ChangeCheckVersion> {
+  readonly value: ProjectProjection<Version>;
+  readonly expectedRevision: number;
+}
+
+export interface CommitStep<
+  Version extends ChangeCheckVersion = ChangeCheckVersion,
+  Scope extends ProjectScope = ProjectScope,
+> {
+  readonly checkpoint: RunCheckpoint<NoInfer<Version>, Scope>;
+  readonly lease: LeaseToken<NoInfer<Scope>>;
+  readonly candidateVersion?: Version;
+  readonly event?: EventEnvelope<string, unknown, NoInfer<Version>>;
+  readonly receipt?: OperationReceipt<NoInfer<Version>>;
+  readonly projection?: ProjectionWrite<NoInfer<Version>>;
 }
 
 export interface PersistenceAdapter {
   appendEvent(event: EventEnvelope): Promise<void>;
   readEvents(scope: ProjectScope, afterCursor?: string): Promise<readonly EventEnvelope[]>;
   readProjection(scope: ProjectScope): Promise<ProjectProjection | null>;
-  saveCheckpoint(checkpoint: RunCheckpoint, lease: LeaseToken): Promise<void>;
+  readCheckpoint(scope: ProjectScope, runId: RunId): Promise<RunCheckpoint | null>;
+  saveCheckpoint<Scope extends ProjectScope>(
+    checkpoint: RunCheckpoint<ChangeCheckVersion, Scope>,
+    lease: LeaseToken<NoInfer<Scope>>,
+  ): Promise<void>;
+  saveProjection(projection: ProjectProjection, expectedRevision: number): Promise<void>;
   readReceipt(scope: ProjectScope, operationKey: OperationKey): Promise<OperationReceipt | null>;
-  saveReceipt(receipt: OperationReceipt, lease: LeaseToken): Promise<void>;
-  acquireLease(scope: ProjectScope, runId: RunId): Promise<LeaseToken | null>;
-  renewLease(scope: ProjectScope, lease: LeaseToken): Promise<LeaseToken | null>;
+  saveReceipt<Scope extends ProjectScope>(
+    receipt: OperationReceipt & { readonly scope: Scope },
+    lease: LeaseToken<NoInfer<Scope>>,
+  ): Promise<void>;
+  acquireLease<Scope extends ProjectScope>(scope: Scope, runId: RunId): Promise<LeaseToken<Scope> | null>;
+  renewLease<Scope extends ProjectScope>(
+    scope: Scope,
+    lease: LeaseToken<NoInfer<Scope>>,
+  ): Promise<LeaseToken<Scope> | null>;
+  commitStep<Version extends ChangeCheckVersion, Scope extends ProjectScope>(
+    step: CommitStep<Version, Scope>,
+  ): Promise<void>;
 }
 
 export interface ModelTurnRequest {

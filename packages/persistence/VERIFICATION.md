@@ -9,7 +9,7 @@ The commit containing this report records the tested implementation.
 | Command | Observed result |
 |---|---|
 | `npm run typecheck` | PASS, both workspaces |
-| `npm test` | PASS: 5 shared-contract tests + 17 persistence fixture tests |
+| `npm test` | PASS: 5 shared-contract tests + 18 persistence fixture tests |
 | `npm run build` | PASS, both workspaces |
 | `git diff --check` | PASS |
 | Credential-pattern scan of persistence source/config/docs/tests | 0 matches |
@@ -62,8 +62,9 @@ or cluster provisioning were changed.
 
 - Simar must wire the adapter into API/worker code. That runtime is not present
   on the imported contracts branch; no end-to-end agent workflow is claimed.
-- Review additive `ScopedLeaseToken.scope`, `readCheckpoint`, `saveProjection`,
-  and `commitStep` for inclusion in shared contracts. Shared files were unchanged.
+- The shared contract now owns scoped leases, checkpoint reads, projection CAS,
+  and atomic `commitStep`; API and worker code should import these types only
+  from `@context-plane/contracts`.
 - Worker paths must use `commitStep` for atomic evidence, not unfenced API-only
   `appendEvent`. Callers retain responsibility for runnable-state decisions,
   authorization, grant transitions, and policy promotion.
