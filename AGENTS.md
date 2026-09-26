@@ -1,5 +1,15 @@
 # ContextPlane agent entry point
 
+## Current priority: onboard the four teammates
+
+Feature development is paused by Shivraj. Use the existing coordination MCP to
+connect Shivraj, Simar, Buddh and Tanish and share their actual work context.
+Follow `docs/ONBOARDING.md`. Do not seed demo data, restart the synthetic API,
+implement the remaining MVPs, or invent another service for this task.
+Before work, read `get_context` and `receive_inbox`. After meaningful progress,
+publish your own `work-status` surface with the actual task, files, blockers,
+next action and timestamp. A registration is not proof that its client is online.
+
 Read [docs/ONTOLOGY.md](docs/ONTOLOGY.md) before planning or changing this project.
 Use its vocabulary in code, schemas, prompts, UI, issues and handoffs. It defines
 the company harness boundary, identities, policy authority and stores. It is a
