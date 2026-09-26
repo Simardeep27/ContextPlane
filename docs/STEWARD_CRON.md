@@ -2,7 +2,7 @@
 
 ## Hosted steward (Vercel Cron)
 
-`apps/hq/api/steward.ts` runs every 10 minutes (`crons` in `apps/hq/vercel.json`).
+`apps/hq/api/steward.ts` runs daily at 12:00 UTC (`crons` in `apps/hq/vercel.json`; Vercel Hobby allows only daily crons — on Pro set `*/10 * * * *`). Trigger it on demand with an authorized GET to `/api/steward`.
 It requires `Authorization: Bearer ${CRON_SECRET}` (401 otherwise), registers
 `company:steward`, reads the last 24 hours through `read_ledger`, drops heartbeats,
 and appends episodes and insights through `remember`. It shares the pure logic in
