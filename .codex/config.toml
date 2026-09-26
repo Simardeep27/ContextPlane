@@ -2,7 +2,7 @@
 url = "http://127.0.0.1:8010/mcp"
 # Start Codex from this repository root. Other client working directories need
 # an absolute helper path for this checkout; see docs/LOCAL_RUN.md.
-http_headers_helper = "node scripts/context-plane-headers.mjs"
+http_headers_helper = "node scripts/team-context-plane-headers.mjs"
 startup_timeout_sec = 30
 tool_timeout_sec = 120
 enabled = true
