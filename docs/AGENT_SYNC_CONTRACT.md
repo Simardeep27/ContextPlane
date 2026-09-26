@@ -2,8 +2,8 @@
 
 Every agent doing authorized ContextPlane work for a teammate follows this
 contract. It uses the existing MCP tools and shared Atlas database. It adds no
-daemon, hook, collection or new product feature. The current onboarding-only
-priority still applies; this contract does not reactivate paused MVP work.
+daemon, hook, collection or new product feature. The current Company Harness sprint priority in AGENTS.md applies; only explicitly
+authorized issue lanes are active.
 
 **Read shared context before work. Report meaningful actions as durable messages.
 Publish current state after progress. Never claim synchronization before it succeeds.**
@@ -24,6 +24,13 @@ Publish current state after progress. Never claim synchronization before it succ
 The shared project token authenticates this trusted-team connection. Declared
 person/agent IDs do not provide individual authorization. A registration or
 recent timestamp is not proof that an agent is still online.
+
+## Sprint cadence
+
+While active, publish a meaningful progress checkpoint at least every five minutes,
+including branch/commit, checks actually run, blockers and next action. Submit
+small passing changes for coordinator review; merge timing depends on validation.
+After merge, report the main commit and refresh shared context. No Hivemind mirror.
 
 ## Start or resume
 
