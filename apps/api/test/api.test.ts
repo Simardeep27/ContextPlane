@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import type { CommandId, DependencyId, EventId, EvidenceId, RunId } from "@context-plane/contracts";
+import type { CommandId, DependencyId, EventId, EvidenceId, PolicyHash, PolicyId, RunId } from "@context-plane/contracts";
 import { DurablePersistenceAdapter, MemoryStorage } from "@context-plane/persistence";
 import { mvp02Scenario } from "@context-plane/scenario";
 
@@ -185,4 +185,25 @@ describe("MVP-03 Context API", () => {
     const exhausted = await handle(request(`${projectPath}/events?after=${event.cursor}`, "dev-a"));
     assert.deepEqual((await exhausted.json()).events, []);
   });
+});
+
+
+it("returns the projected active policy only in its target agent context after reconnect", async () => {
+  const { persistence } = await fixture();
+  const before = (await persistence.readProjection(mvp02Scenario.scope))!;
+  const policy = { scope: mvp02Scenario.scope, policyId: 'policy-test' as PolicyId,
+    targetAgentId: mvp02Scenario.developers[0].agentId, policyHash: 'sha256:test' as PolicyHash,
+    revision: 1, policyEpoch: 2, datasetHash: mvp02Scenario.policyDatasetHash,
+    rule: { kind: 'unit_change', requireCurrentDependencyRevision: true, requireAcknowledgements: true,
+      requiredAgentIds: [mvp02Scenario.developers[1].agentId] },
+    evidence: [mvp02Scenario.devBPublication.evidence], promotedAt: '2026-09-26T20:00:00Z' };
+  // Read-contract test only: activation correctness is exercised by gateway tests.
+  await persistence.saveProjection({ ...before, revision: before.revision + 1, policyEpoch: 2, activePolicy: policy }, before.revision);
+  const handle = createContextApiHandler(new ContextApi(persistence));
+  const devA = await (await handle(request(`${projectPath}/context`, 'dev-a'))).json();
+  const devB = await (await handle(request(`${projectPath}/context`, 'dev-b'))).json();
+  assert.deepEqual(devA.activePolicy, policy);
+  assert.equal(devA.policyEpoch, 2);
+  assert.equal(devB.activePolicy, null);
+  assert.equal(devB.policyEpoch, 2);
 });

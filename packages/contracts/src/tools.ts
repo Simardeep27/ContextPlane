@@ -1,4 +1,4 @@
-import type { AddressedMessage, AgentId, EvidenceId, ProjectScope } from "./contracts.js";
+import type { AddressedMessage, AgentId, EvidenceId, PolicyVersion, ProjectScope } from "./contracts.js";
 
 export const toolNames = [
   "get_project_context",
@@ -36,6 +36,8 @@ export interface AgentContextPacket {
   readonly evidenceIds: readonly EvidenceId[];
   readonly allowedTools: readonly ToolName[];
   readonly policyEpoch: number;
+  /** Present only for this agent; older context providers may omit it. */
+  readonly activePolicy?: PolicyVersion | null;
 }
 
 const stringValue = { type: "string", minLength: 1 } as const;
