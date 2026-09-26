@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createTeamHandler } from './team.ts';
+import { createTeamHandler, readTeam } from './team.ts';
 import { createOptimizeHandler } from './optimize.ts';
 const token='test-only-upstream-token';
 const origin='https://team.example';
@@ -49,4 +49,18 @@ test('optimize route reuses the API harness optimizer and validates input',async
  assert.equal((await handle(request('POST',json,'{bad','/api/optimize'))).status,400);
  assert.equal((await handle(request('GET',{},undefined,'/api/optimize'))).status,405);
  assert.equal((await handle(request('POST',{...json,origin:'https://evil.example'},'{}','/api/optimize'))).status,403);
+});
+test('team view fills events from read_ledger when context has none, and falls back when the tool is absent',async()=>{
+ const ledger=(available:boolean):typeof fetch=>async(_url,options)=>{const body=JSON.parse(String(options?.body));
+  if(body.params.name==='get_context')return Response.json({id:body.id,result:{structuredContent:{context:{surfaces:[]}}}});
+  assert.equal(body.params.name,'read_ledger');assert.equal(body.params.arguments.scope,'project:context-plane');assert.equal(body.params.arguments.limit,200);
+  return available?Response.json({id:body.id,result:{structuredContent:{events:[
+    {messageId:'m2',senderIdentity:'simar:primary',createdAt:'2026-09-26T17:00:00Z',type:'work_finished',summary:'done',task:null,files:[],body:token},
+    {messageId:'m1',senderIdentity:'buddh:primary',createdAt:'2026-09-26T16:00:00Z',type:'progress',summary:'ok',task:'t',files:['a.ts']},
+    {messageId:'m0',senderIdentity:'x',createdAt:'2026-09-26T15:00:00Z',type:'not_a_type',summary:null,task:null,files:[]}]}}})
+   :Response.json({id:body.id,result:{isError:true,content:[{type:'text',text:'TOOL_UNAVAILABLE'}]}});};
+ const filled=await readTeam(token,ledger(true));
+ assert.deepEqual(filled.events.map(e=>[e.actor,e.type]),[['buddh:primary','progress'],['simar:primary','work_finished']]);
+ assert.ok(!JSON.stringify(filled).includes(token));
+ const fallback=await readTeam(token,ledger(false));assert.deepEqual(fallback.events,[]);assert.deepEqual(fallback.agents,[]);
 });

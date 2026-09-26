@@ -5,11 +5,14 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, typ
 import { toolDefinitions, type OperationKey, type PersistenceAdapter, type ProjectScope } from '@context-plane/contracts';
 import { PersistenceError } from '@context-plane/persistence';
 import { CoordinationError, type CoordinationRepository, type CoordinationToolName } from './coordination.js';
+import { brainDigest, brainKinds, BRAIN_BODY_MAX_BYTES, type BrainKind, type BrainRepository } from './brain.js';
 
 export const coordinationTools = ['register_agent', 'register_dependency', 'get_context', 'publish_surface',
-  'send_message', 'receive_inbox', 'acknowledge'] as const satisfies readonly CoordinationToolName[];
+  'send_message', 'receive_inbox', 'acknowledge', 'read_ledger'] as const satisfies readonly CoordinationToolName[];
 export const readTools = ['get_project_context', 'read_operation'] as const;
-export const implementedTools = [...readTools, ...coordinationTools] as const;
+export const brainTools = ['remember', 'recall'] as const;
+export type BrainToolName = (typeof brainTools)[number];
+export const implementedTools = [...readTools, ...coordinationTools, ...brainTools] as const;
 export type ImplementedToolName = (typeof implementedTools)[number];
 export interface Principal {
   readonly scope: ProjectScope;
@@ -58,7 +61,7 @@ const coordinationDefinitions: Readonly<Record<CoordinationToolName, Tool>> = {
       required: ['identity', 'scope', 'dependency_id', 'depends_on', 'description'] },
   },
   get_context: {
-    name: 'get_context', description: 'Read durable coordination context for one registered agent.',
+    name: 'get_context', description: 'Read durable coordination context for one registered agent, plus the company brain digest (active principles and the 5 most recent insights) when available.',
     inputSchema: { type: 'object', additionalProperties: false,
       properties: { identity: identifier, scope: identifier }, required: ['identity', 'scope'] },
   },
@@ -85,12 +88,40 @@ const coordinationDefinitions: Readonly<Record<CoordinationToolName, Tool>> = {
         lease_seconds: { type: 'integer', minimum: 10, maximum: 3600 } },
       required: ['identity', 'scope'] },
   },
+  read_ledger: {
+    name: 'read_ledger', description: 'Read recent coordination reports for the scope as a sanitized projection (messageId, sender, createdAt, and parsed type, summary, task, files only). Newest first.',
+    inputSchema: { type: 'object', additionalProperties: false,
+      properties: { identity: identifier, scope: identifier, since: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T', maxLength: 64 },
+        limit: { type: 'integer', minimum: 1, maximum: 200 } },
+      required: ['identity', 'scope'] },
+  },
   acknowledge: {
     name: 'acknowledge', description: 'Acknowledge a leased inbox item or return it to the retryable queue.',
     inputSchema: { type: 'object', additionalProperties: false,
       properties: { identity: identifier, scope: identifier, message_id: identifier,
         lease_generation: { type: 'integer', minimum: 1 }, success: { type: 'boolean' } },
       required: ['identity', 'scope', 'message_id', 'lease_generation', 'success'] },
+  },
+};
+
+const brainDefinitions: Readonly<Record<BrainToolName, Tool>> = {
+  remember: {
+    name: 'remember', description: 'Append one immutable company-brain entry (derived context, not evidence). Idempotent on entry_id; a correction is a new entry that supersedes the old one. Only human:* or *:primary identities may write principles.',
+    inputSchema: { type: 'object', additionalProperties: false,
+      properties: { identity: identifier, scope: identifier, kind: { type: 'string', enum: [...brainKinds] },
+        title: { type: 'string', minLength: 1, maxLength: 200 },
+        body: { type: 'string', minLength: 1, maxLength: BRAIN_BODY_MAX_BYTES },
+        source_ids: evidenceIds, entry_id: identifier, supersedes: identifier,
+        status: { type: 'string', enum: ['active', 'retired'] } },
+      required: ['identity', 'scope', 'kind', 'title', 'body', 'source_ids'] },
+  },
+  recall: {
+    name: 'recall', description: 'Recall active company-brain entries ranked by simple text match plus recency.',
+    inputSchema: { type: 'object', additionalProperties: false,
+      properties: { identity: identifier, scope: identifier, query: { type: 'string', maxLength: 500 },
+        kinds: { type: 'array', maxItems: brainKinds.length, uniqueItems: true, items: { type: 'string', enum: [...brainKinds] } },
+        limit: { type: 'integer', minimum: 1, maximum: 50 } },
+      required: ['identity', 'scope'] },
   },
 };
 
@@ -103,7 +134,8 @@ async function requireRegistered(repository: CoordinationRepository, identity: s
   if (!await repository.getContext(identity, scope)) throw new CoordinationError('NOT_FOUND');
 }
 
-export function coordinationHandlers(repository: () => Promise<CoordinationRepository>): DomainHandlers {
+export function coordinationHandlers(repository: () => Promise<CoordinationRepository>,
+  brain?: () => Promise<BrainRepository>): DomainHandlers {
   return {
     register_agent: { readOnly: false, execute: async (principal, args) => {
       const scope = requireCoordinationScope(principal, args);
@@ -119,8 +151,9 @@ export function coordinationHandlers(repository: () => Promise<CoordinationRepos
     } },
     get_context: { readOnly: true, execute: async (principal, args) => {
       const scope = requireCoordinationScope(principal, args);
-      return { projectScope: principal.scope, coordinationScope: scope,
-        context: await (await repository()).getContext(args.identity as string, scope) };
+      const context = await (await repository()).getContext(args.identity as string, scope);
+      return { projectScope: principal.scope, coordinationScope: scope, context,
+        ...(brain ? { brain: await brainDigest(await brain(), scope) } : {}) };
     } },
     publish_surface: { readOnly: false, execute: async (principal, args) => {
       const scope = requireCoordinationScope(principal, args); const repo = await repository();
@@ -142,11 +175,39 @@ export function coordinationHandlers(repository: () => Promise<CoordinationRepos
       return { messages: await repo.receiveInbox(args.identity as string, scope,
         (args.limit ?? 10) as number, (args.lease_seconds ?? 300) as number) };
     } },
+    read_ledger: { readOnly: true, execute: async (principal, args) => {
+      // Same checks as get_context: shared token plus configured coordination scope.
+      const scope = requireCoordinationScope(principal, args);
+      if (args.since !== undefined && !Number.isFinite(Date.parse(args.since as string))) throw new CoordinationError('INVALID_INPUT');
+      const since = args.since === undefined ? undefined : new Date(args.since as string).toISOString();
+      return { coordinationScope: scope, events: await (await repository()).readLedger(scope, since, (args.limit ?? 50) as number) };
+    } },
     acknowledge: { readOnly: false, execute: async (principal, args) => {
       const scope = requireCoordinationScope(principal, args); const repo = await repository();
       await requireRegistered(repo, args.identity as string, scope);
       return repo.acknowledge(args.identity as string, scope, args.message_id as string,
         args.lease_generation as number, args.success as boolean);
+    } },
+  };
+}
+
+/** Same token, scope and registration checks as the coordination write tools. */
+export function brainHandlers(coordination: () => Promise<CoordinationRepository>,
+  brain: () => Promise<BrainRepository>): DomainHandlers {
+  return {
+    remember: { readOnly: false, execute: async (principal, args) => {
+      const scope = requireCoordinationScope(principal, args);
+      await requireRegistered(await coordination(), args.identity as string, scope);
+      return (await (await brain()).remember({ scope, kind: args.kind as BrainKind, title: args.title as string,
+        body: args.body as string, sourceIds: args.source_ids as string[], author: args.identity as string,
+        entryId: args.entry_id as string | undefined, supersedes: args.supersedes as string | undefined,
+        status: args.status as 'active' | 'retired' | undefined })).entry;
+    } },
+    recall: { readOnly: true, execute: async (principal, args) => {
+      const scope = requireCoordinationScope(principal, args);
+      await requireRegistered(await coordination(), args.identity as string, scope);
+      return { entries: await (await brain()).recall(scope, { query: args.query as string | undefined,
+        kinds: args.kinds as BrainKind[] | undefined, limit: (args.limit ?? 10) as number }) };
     } },
   };
 }
@@ -157,6 +218,7 @@ const definitions = new Map<string, Tool>([
     ...definition, inputSchema: definition.inputSchema as Tool['inputSchema'],
   }] as const),
   ...Object.entries(coordinationDefinitions),
+  ...Object.entries(brainDefinitions),
 ]);
 const schemas = new Map([...definitions].map(([name, definition]) => [name, validator.compile(definition.inputSchema)]));
 function errorResult(code: string): CallToolResult {

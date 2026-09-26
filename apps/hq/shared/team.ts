@@ -60,3 +60,14 @@ export function projectTeam(value: unknown, now = new Date()): TeamSnapshot {
     .sort((a,b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
   return { fetchedAt: now.toISOString(), agents: [...agents.values()].sort((a,b) => a.identity.localeCompare(b.identity)), events, possiblyTruncated: context.surfaces.length >= 100 };
 }
+/** Allowlisted mapping of the MCP read_ledger result (already sanitized server-side) into team events. */
+export function projectLedger(value: unknown): TeamEvent[] {
+  const events = record(value).events;
+  if (!Array.isArray(events)) throw new Error('LEDGER_UNAVAILABLE');
+  return events.slice(0, 200).flatMap(raw => {
+    const e = record(raw); const type = eventTypes.find(t => t === e.type);
+    const actor = text(e.senderIdentity, 256); const occurredAt = date(e.createdAt);
+    if (!type || !actor || !occurredAt) return [];
+    return [{ type, actor, task: text(e.task, 500), summary: text(e.summary, 280), files: list(e.files), occurredAt }];
+  }).sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
+}

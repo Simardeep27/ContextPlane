@@ -111,3 +111,24 @@ it('Mongo acknowledgement requires a live lease and preserves its generation on 
   const repository = new MongoCoordinationRepository({ collection: () => collection } as unknown as Db, scope);
   await assert.rejects(repository.acknowledge('agent:b', coordinationScope, message.messageId, 2, true), { code: 'LEASE_LOST' });
 });
+
+it('read_ledger projection exposes only sanitized fields, newest first, bounded by since and limit', async () => {
+  let now = new Date('2026-09-26T16:00:00Z');
+  const repository = new MemoryCoordinationRepository(() => now);
+  await repository.sendMessage({ ...message, messageId: 'old', body: JSON.stringify({ type: 'progress', summary: 'old' }) });
+  now = new Date('2026-09-26T17:00:00Z');
+  await repository.sendMessage({ ...message, messageId: 'report', evidenceIds: ['PRIVATE_EVIDENCE'], body: JSON.stringify({
+    type: 'work_started', summary: 's'.repeat(400), task: 'issue-40', files: ['a.ts', 7], secret: 'PRIVATE_FIELD' }) });
+  now = new Date('2026-09-26T18:00:00Z');
+  await repository.sendMessage({ ...message, messageId: 'free', body: 'PRIVATE free text' });
+  const events = await repository.readLedger(coordinationScope, '2026-09-26T16:30:00.000Z', 200);
+  assert.deepEqual(events.map(event => event.messageId), ['free', 'report']);
+  assert.deepEqual(Object.keys(events[1]!).sort(), ['createdAt', 'files', 'messageId', 'senderIdentity', 'summary', 'task', 'type']);
+  assert.equal(events[1]!.summary!.length, 280);
+  assert.deepEqual(events[1]!.files, ['a.ts']);
+  assert.deepEqual({ ...events[0], messageId: undefined, createdAt: undefined }, { messageId: undefined, createdAt: undefined,
+    senderIdentity: 'agent:a', type: null, summary: null, task: null, files: [] });
+  assert.ok(!JSON.stringify(events).includes('PRIVATE'));
+  assert.equal((await repository.readLedger(coordinationScope, undefined, 1)).length, 1);
+  assert.deepEqual(await repository.readLedger('other-scope', undefined, 200), []);
+});

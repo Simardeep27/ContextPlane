@@ -10,7 +10,8 @@ export type CoordinationToolName =
   | 'publish_surface'
   | 'send_message'
   | 'receive_inbox'
-  | 'acknowledge';
+  | 'acknowledge'
+  | 'read_ledger';
 
 export interface CoordinationAgent {
   readonly identity: string;
@@ -54,6 +55,32 @@ export interface CoordinationMessage {
   readonly updatedAt: string;
 }
 
+/** Sanitized ledger projection: never the raw body, evidence IDs, or unlisted body fields. */
+export interface LedgerEvent {
+  readonly messageId: string;
+  readonly senderIdentity: string;
+  readonly createdAt: string;
+  readonly type: string | null;
+  readonly summary: string | null;
+  readonly task: string | null;
+  readonly files: readonly string[];
+}
+
+const clipText = (value: unknown, max: number): string | null =>
+  typeof value === 'string' && value.trim() ? (value.length > max ? `${value.slice(0, max - 1)}…` : value) : null;
+
+export function sanitizeLedgerEvent(message: Pick<CoordinationMessage, 'messageId' | 'senderIdentity' | 'createdAt' | 'body'>): LedgerEvent {
+  let body: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(message.body);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed as Record<string, unknown>;
+  } catch { /* Free-text bodies expose no content. */ }
+  return { messageId: message.messageId, senderIdentity: message.senderIdentity, createdAt: message.createdAt,
+    type: clipText(body.type, 64), summary: clipText(body.summary, 280), task: clipText(body.task, 500),
+    files: Array.isArray(body.files) ? body.files.slice(0, 30).map(file => clipText(file, 256))
+      .filter((file): file is string => file !== null) : [] };
+}
+
 export interface CoordinationContext {
   readonly agent: CoordinationAgent;
   readonly dependencies: readonly CoordinationDependency[];
@@ -73,6 +100,8 @@ export interface CoordinationRepository {
   receiveInbox(identity: string, coordinationScope: string, limit: number, leaseSeconds: number): Promise<readonly CoordinationMessage[]>;
   acknowledge(identity: string, coordinationScope: string, messageId: string,
     leaseGeneration: number, success: boolean): Promise<CoordinationMessage>;
+  /** Newest-first sanitized projection of recent coordination messages for one scope. */
+  readLedger(coordinationScope: string, since: string | undefined, limit: number): Promise<readonly LedgerEvent[]>;
 }
 
 interface ScopedDocument { _id: string; orgId: string; projectId: string }
@@ -82,7 +111,7 @@ type SurfaceDocument = ScopedDocument & CoordinationSurface;
 type MessageDocument = ScopedDocument & CoordinationMessage;
 
 export class CoordinationError extends Error {
-  constructor(readonly code: 'INVALID_INPUT' | 'NOT_FOUND' | 'CONFLICT' | 'IDEMPOTENCY_CONFLICT' | 'LEASE_LOST') {
+  constructor(readonly code: 'INVALID_INPUT' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'IDEMPOTENCY_CONFLICT' | 'LEASE_LOST') {
     super(code); this.name = 'CoordinationError';
   }
 }
@@ -276,6 +305,15 @@ export class MongoCoordinationRepository implements CoordinationRepository {
     if (!completed) throw new CoordinationError('LEASE_LOST');
     return stripScope(completed);
   }
+
+  async readLedger(coordinationScope: string, since: string | undefined, limit: number): Promise<readonly LedgerEvent[]> {
+    const messages = await this.db.collection<MessageDocument>('cp_coordination_messages').find({
+      orgId: this.scope.orgId, projectId: this.scope.projectId, coordinationScope,
+      ...(since ? { createdAt: { $gte: since } } : {}),
+    }, { projection: { _id: 0, messageId: 1, senderIdentity: 1, createdAt: 1, body: 1 } })
+      .sort({ createdAt: -1 }).limit(limit).toArray();
+    return messages.map(sanitizeLedgerEvent);
+  }
 }
 
 /** Deterministic in-process repository used by MCP contract tests. */
@@ -373,5 +411,11 @@ export class MemoryCoordinationRepository implements CoordinationRepository {
     const value: CoordinationMessage = { ...base, status: success ? 'acknowledged' : 'pending',
       updatedAt: this.clock().toISOString() };
     this.messages.set(key, structuredClone(value)); return value;
+  }
+
+  async readLedger(coordinationScope: string, since: string | undefined, limit: number): Promise<readonly LedgerEvent[]> {
+    return [...this.messages.values()].filter(message => message.coordinationScope === coordinationScope &&
+      (!since || message.createdAt >= since)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit).map(sanitizeLedgerEvent);
   }
 }

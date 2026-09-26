@@ -10,13 +10,15 @@
   "scripts": {
     "build": "npm run build -w @context-plane/contracts && npm run build -w @context-plane/scenario && npm run build -w @context-plane/persistence && npm run build -w @context-plane/core && npm run build -w @context-plane/runner && npm run build -w @context-plane/gateway && npm run build -w @context-plane/e2e && npm run build -w @context-plane/api && npm run build -w @context-plane/mcp && npm run build -w @context-plane/hq",
     "seed:mvp-02": "npm run seed -w @context-plane/scenario",
-    "test": "npm run build && npm run test --workspaces --if-present && node --test scripts/agent-sync/*.test.mjs",
+    "test": "npm run build && npm run test --workspaces --if-present && node --test scripts/agent-sync/*.test.mjs scripts/brain/*.test.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "demo:e2e": "npm run build && node packages/e2e/dist/run.js",
     "demo:atlas": "npm run build && node packages/e2e/dist/run.js --atlas",
     "demo:mongo-local": "npm run build && node packages/e2e/dist/run.js --mongo-local",
     "start:local": "node scripts/local-stack.mjs",
     "smoke:local": "node scripts/local-stack.mjs --smoke",
+    "test:brain": "npm run build -w @context-plane/mcp && node --test scripts/brain/*.test.mjs",
+    "brain:distill": "node scripts/brain/distill.mjs",
     "test:agent-sync": "npm run build -w @context-plane/mcp && node --test scripts/agent-sync/*.test.mjs",
     "worker:live": "npm run build && node packages/e2e/dist/live-worker.js"
   },

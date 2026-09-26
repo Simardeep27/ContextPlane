@@ -3,7 +3,8 @@ import type { ProjectScope } from '@context-plane/contracts';
 import { connectStorage, DurablePersistenceAdapter } from '@context-plane/persistence';
 import { createApp } from './app.js';
 import { MongoCoordinationRepository } from './coordination.js';
-import { coordinationHandlers, implementedTools, readHandlers } from './domain.js';
+import { MongoBrainRepository } from './brain.js';
+import { brainHandlers, coordinationHandlers, implementedTools, readHandlers } from './domain.js';
 
 function setting(name: string): string {
   const value = process.env[name];
@@ -32,16 +33,27 @@ async function main() {
     })().catch(error => { coordination = undefined; throw error; });
     return coordination;
   };
+  let brain: Promise<MongoBrainRepository> | undefined;
+  const brainRepository = async () => {
+    brain ??= (async () => {
+      const initialized = new MongoBrainRepository((await connection()).client.db(database), scope);
+      await initialized.initialize();
+      return initialized;
+    })().catch(error => { brain = undefined; throw error; });
+    return brain;
+  };
   const telemetry = telemetryFromEnvironment();
   const app = createApp({ telemetry, token, principal: { scope, coordinationScope,
     identity: 'shared-project-coordinator', allowedTools: implementedTools },
     handlers: { ...readHandlers(async () => {
       repository ??= new DurablePersistenceAdapter((await connection()).storage);
       return repository;
-    }), ...coordinationHandlers(coordinationRepository) },
+    }), ...coordinationHandlers(coordinationRepository, brainRepository),
+    ...brainHandlers(coordinationRepository, brainRepository) },
     ready: async () => {
       await (await connection()).client.db(database).command({ ping: 1 });
       await coordinationRepository();
+      await brainRepository();
     },
   });
   const port = Number(process.env.PORT ?? '8010');
