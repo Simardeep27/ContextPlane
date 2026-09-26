@@ -17,6 +17,21 @@ export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSim
   const [draft, setDraft] = useState(suggestions[0]!);
   const [question, setQuestion] = useState(suggestions[0]!);
   const answer = useMemo(() => answerLive(question, poll.views), [question, poll.views]);
+  const [chat, setChat] = useState<{role:'user'|'assistant';content:string}[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState('');
+  const [chatModel, setChatModel] = useState('');
+  async function askCompany(text: string) {
+    if (!text.trim() || chatBusy) return;
+    setQuestion(text); setChatBusy(true); setChatError('');
+    try {
+      const response = await fetch('/api/chat', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:text,history:chat.slice(-6).map(m=>({...m,content:m.content.slice(0,2000)}))}),signal:AbortSignal.timeout(40000)});
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error === 'CHAT_NOT_CONFIGURED' ? 'Server chat key is not configured.' : data.error === 'CHAT_CREDITS_REQUIRED' ? 'OpenRouter needs credits.' : 'Company chat is unavailable. Please retry.');
+      setChat(prev=>[...prev,{role:'user',content:text},{role:'assistant',content:data.answer}].slice(-8) as typeof prev); setChatModel(data.model ?? 'OpenRouter');
+    } catch (e) { setChatError(e instanceof Error ? e.message : 'Company chat failed.'); }
+    finally { setChatBusy(false); }
+  }
   const agent = poll.views.find((v) => v.identity === selected) ?? null;
   const hasData = poll.fetchedAt !== null;
   const now = useNow(5000);
@@ -102,16 +117,20 @@ export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSim
               <button type="button" className="btn btn--ghost btn--icon" aria-label="Minimize panel" title="Minimize" onClick={() => setPanel("collapsed")}>–</button>
             </div>
           </header>
-          <form className="manager__form" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) setQuestion(draft.trim()); }}>
-            <input value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Question for the command center" />
-            <button type="submit" className="btn btn--small">Ask</button>
+          <form className="manager__form" onSubmit={(e) => { e.preventDefault(); void askCompany(draft.trim()); }}>
+            <input value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} aria-label="Question for the command center" />
+            <button type="submit" disabled={chatBusy} className="btn btn--small">{chatBusy ? "Thinking…" : "Ask company"}</button>
           </form>
           <div className="chips">
             {suggestions.map((s) => (
-              <button key={s} type="button" className={`chip${s === question ? " is-active" : ""}`} onClick={() => { setDraft(s); setQuestion(s); }}>{s}</button>
+              <button key={s} type="button" className={`chip${s === question ? " is-active" : ""}`} onClick={() => { setDraft(s); void askCompany(s); }}>{s}</button>
             ))}
           </div>
           <div className="answer">
+            {chatError && <p role="alert">{chatError}</p>}
+            <div aria-live="polite">{chat.map((m,i)=><div key={i}><strong>{m.role==='user'?'You':'Company'}</strong><p style={{whiteSpace:'pre-wrap'}}>{m.content}</p></div>)}{chatBusy && <p>Reading shared context and thinking…</p>}</div>
+            {chat.length > 0 && <small>{chatModel} · live context · read-only answers</small>}
+            <details open={chat.length === 0}><summary>Live status reports</summary>
             <p className="answer__meta">
               {hasData ? <><span className="live-dot" /> {answer.heading} · as of {clock(poll.fetchedAt!.toISOString())}</> : "Waiting for live team data"}
             </p>
@@ -127,7 +146,8 @@ export function LiveApp({ switcher, onSimulation }: { switcher: ReactNode; onSim
                 ))}
               </ul>
             )}
-            <p className="answer__foot">Hover an answer for the full text; click it to open the agent. Built only from the live team projection. No model summarization.</p>
+            <p className="answer__foot">Status rows come directly from reports. Company answers use OpenRouter and may be mistaken.</p>
+            </details>
           </div>
         </section>
         )}
