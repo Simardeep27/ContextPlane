@@ -47,6 +47,18 @@ test(`${client}: two independent MCP clients read reports and status after parti
   assert.equal(JSON.parse(inbox.messages[0].body).evidenceKind, 'client_observation');
   assert.equal(JSON.stringify(inbox).includes('secret'), false);
   assert.equal(box.read().pending.length, 0);
+  const heartbeatId = await box.enqueue({ kind: 'Heartbeat', key: 'heartbeat-test', summary: 'Process alive; outcome unverified' });
+  writer = await connect(env);
+  try { await box.flush(writer.call); } finally { await writer.close(); }
+  const heartbeatContext = await reader.call('get_context', { identity: 'shivraj:primary', scope: config.scope });
+  const heartbeat = heartbeatContext.context.surfaces[0].content;
+  assert.equal(heartbeat.lastEventId, heartbeatId);
+  assert.equal(heartbeat.lastActivityAt, context.context.surfaces[0].content.lastActivityAt);
+  assert.equal(heartbeat.currentTask, context.context.surfaces[0].content.currentTask);
+  assert.ok(heartbeat.heartbeatAt);
+  const heartbeatInbox = await reader.call('receive_inbox', { identity: 'shivraj:primary', scope: config.scope });
+  assert.equal(heartbeatInbox.messages.length, 1);
+  assert.equal(JSON.parse(heartbeatInbox.messages[0].body).type, 'heartbeat');
 });
 
 }
