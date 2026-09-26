@@ -7,7 +7,10 @@ export type TeamAgent = {
   blockedOn: string[]; nextAction: string | null; files: string[]; evidence: string[];
   reportedAt: string | null; publishedAt: string | null; revision: number | null;
 };
-export type TeamSnapshot = { fetchedAt: string; agents: TeamAgent[]; possiblyTruncated: boolean };
+export type TeamEvent = { messageId: string; senderIdentity: string; createdAt: string;
+  type: string | null; summary: string | null; task: string | null; files: string[] };
+export type TeamSnapshot = { fetchedAt: string; agents: TeamAgent[]; possiblyTruncated: boolean;
+  events?: TeamEvent[]; eventsAvailable?: boolean };
 const record = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const text = (v: unknown, max = 2000) => typeof v === 'string' && v.trim() ? v.slice(0, max) : null;
 const list = (v: unknown) => Array.isArray(v) ? v.slice(0, 30).map(x => text(x)).filter((x): x is string => x !== null) : [];
@@ -40,4 +43,16 @@ export function projectTeam(value: unknown, now = new Date()): TeamSnapshot {
     if (!prior || (agent.revision ?? 0) > (prior.revision ?? 0)) agents.set(identity, agent);
   }
   return { fetchedAt: now.toISOString(), agents: [...agents.values()].sort((a,b) => a.identity.localeCompare(b.identity)), possiblyTruncated: context.surfaces.length >= 100 };
+}
+/** Allowlisted projection of the MCP read_ledger result (already sanitized server-side). */
+export function projectLedger(value: unknown): TeamEvent[] {
+  const events = record(value).events;
+  if (!Array.isArray(events)) throw new Error('LEDGER_UNAVAILABLE');
+  return events.slice(0, 200).flatMap(raw => {
+    const e = record(raw); const messageId = text(e.messageId, 256); const senderIdentity = text(e.senderIdentity, 256);
+    const createdAt = date(e.createdAt);
+    if (!messageId || !senderIdentity || !createdAt) return [];
+    return [{ messageId, senderIdentity, createdAt, type: text(e.type, 64), summary: text(e.summary, 280),
+      task: text(e.task, 500), files: list(e.files) }];
+  });
 }

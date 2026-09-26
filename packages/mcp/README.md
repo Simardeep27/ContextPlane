@@ -85,8 +85,8 @@ CONTEXT_PLANE_COORDINATION_SCOPE=project:context-plane \
 npm start -w @context-plane/mcp
 ```
 
-The smoke client needs the same injected token. It checks readiness, exactly
-nine tools, product reads, coordination scope rejection, and two HTTP connections:
+The smoke client needs the same injected token. It checks readiness, exactly the
+twelve tools (including brain `remember`/`recall` and `read_ledger`, see docs/COMPANY_BRAIN.md), product reads, coordination scope rejection, and two HTTP connections:
 
 ```sh
 CONTEXT_PLANE_MCP_URL=http://127.0.0.1:8010/mcp \

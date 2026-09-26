@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { projectTeam } from '../shared/team.js';
+import { projectLedger, projectTeam } from '../shared/team.js';
 const endpoint = 'https://context-plane-brain.buddhsen-work.workers.dev/mcp';
 const cookieName = 'hq_team_session';
 const sessionSeconds = 8 * 60 * 60;
@@ -14,18 +14,26 @@ function validSession(cookie: string, key: string, now: number) {
   const expiry = Number(expires);
   return /^\d+$/.test(expires) && expiry > now && expiry <= now + sessionSeconds * 1000 && equal(sig, signature(expires,key));
 }
-export async function readTeam(token: string, fetcher: typeof fetch = fetch) {
+async function callTool(token: string, fetcher: typeof fetch, name: string, args: Record<string, unknown>) {
   const id = randomUUID();
   const upstream = await fetcher(endpoint, { method: 'POST', redirect: 'error',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type':'application/json', Accept:'application/json, text/event-stream' },
-    body: JSON.stringify({ jsonrpc:'2.0', id, method:'tools/call', params: { name:'get_context', arguments: { identity:'shivraj:ui',scope:'project:context-plane' } } }),
+    body: JSON.stringify({ jsonrpc:'2.0', id, method:'tools/call', params: { name, arguments: args } }),
     signal: AbortSignal.timeout(10_000) });
   if (!upstream.ok) throw new Error('MCP_UNAVAILABLE');
   const envelope = await upstream.json();
   if (envelope.id !== id || envelope.error || envelope.result?.isError) throw new Error('MCP_UNAVAILABLE');
   const result = envelope.result;
-  const value = result.structuredContent ?? JSON.parse(result.content?.find((c: {type: string}) => c.type === 'text')?.text ?? 'null');
-  return projectTeam(value);
+  return result.structuredContent ?? JSON.parse(result.content?.find((c: {type: string}) => c.type === 'text')?.text ?? 'null');
+}
+const scopeArgs = { identity:'shivraj:ui', scope:'project:context-plane' };
+export async function readTeam(token: string, fetcher: typeof fetch = fetch) {
+  const team = projectTeam(await callTool(token, fetcher, 'get_context', scopeArgs));
+  // read_ledger is newer than the deployed MCP may be; the team view still works without it.
+  try {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    return { ...team, events: projectLedger(await callTool(token, fetcher, 'read_ledger', { ...scopeArgs, since, limit: 200 })), eventsAvailable: true };
+  } catch { return { ...team, events: [], eventsAvailable: false }; }
 }
 export function createTeamHandler(env: Env, fetcher: typeof fetch = fetch, clock = Date.now) {
   return async (req: Request): Promise<Response> => {
