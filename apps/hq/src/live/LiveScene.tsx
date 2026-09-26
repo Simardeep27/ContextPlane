@@ -296,11 +296,11 @@ export function LiveScene({ views, pulseAt, fresh, selected, onSelect, still, sh
 
       <CompanyAgent pulseAt={pulseAt} still={still} onOpen={onOpenCompany}>{company}</CompanyAgent>
       <Line points={[[0,0.2,0],[2.6,0.2,1.8]]} color="#a78bfa" lineWidth={2} transparent opacity={0.65}/>
-      <Robot view={{identity:'company:evaluator',suffix:'Observer',person:'Company',status:observer.busy?'working':'idle',task:null,summary:null,files:[],updatedAt:null,lastEventType:null,idleMinutes:null}}
+      <Robot view={{identity:'company:evaluator',suffix:'Observer',person:'Company',status:observer.busy&&!observer.paused?'working':'idle',task:null,summary:null,files:[],updatedAt:null,lastEventType:null,idleMinutes:null}}
         position={[2.6,0,1.8]} freshAt={undefined} selected={false} onSelect={onOpenCompany} still={still}
         label={<button className="observer-speech" onClick={onOpenCompany} aria-label="Open company observer">
           <strong>Observer <small>{observer.status}</small></strong>
-          <span>{observer.busy?'Reviewing our latest work…':observer.paused?'Paused':observer.error?'Unable to review. Retrying.':observer.short}</span>
+          <span>{observer.paused?'Paused':observer.busy?'Reviewing our latest work…':observer.error?'Unable to review. Retrying.':observer.short}</span>
         </button>}/>
       {pads.map((pad) => (
         <group key={pad.person}>

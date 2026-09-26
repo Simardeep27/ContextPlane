@@ -3,7 +3,7 @@ import './evaluator.css';
 type Result={memory:{body:string;createdAt:string;entryId:string};model?:string;cached:boolean};
 export function useCompanyEvaluator(){
   const [result,setResult]=useState<Result|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [paused,setPaused]=useState(false);
-  useEffect(()=>{let alive=true,active=false;const controller=new AbortController();
+  useEffect(()=>{if(paused)setBusy(false);let alive=true,active=false;const controller=new AbortController();
     async function run(){if(document.hidden||active||paused)return;active=true;setBusy(true);setError('');
       try{const r=await fetch('/api/evaluator',{method:'POST',signal:controller.signal});const d=await r.json();if(!r.ok)throw Error('Evaluator unavailable. Retrying next minute.');if(alive)setResult(d);}
       catch(e){if(alive)setError(e instanceof Error?e.message:'Evaluator unavailable');}finally{active=false;if(alive)setBusy(false);}}
