@@ -2,8 +2,10 @@ import { StrictMode, useCallback, useEffect, useMemo, useRef, useState, type CSS
 import { createRoot } from 'react-dom/client';
 import { people, personOf, type TeamSnapshot } from '../../shared/team.ts';
 import { agentViews, groupByPerson, optimize, type AgentView, type OptimizerReport, type PersonResolver } from '../../shared/harness.ts';
-import { sampleOrder, samplePersonOf, sampleSnapshot, sampleTeamOf } from '../../shared/sample.ts';
+import { sampleOrder, samplePersonOf, sampleSnapshot } from '../../shared/sample.ts';
 import { BrainIcon, BrandMark } from '../ui/BrandMark.tsx';
+import { AppNav } from '../ui/AppNav.tsx';
+import { CompanyTree, LearningEpisodePanel, SampleEpisodePanel } from './Episode.tsx';
 import './team.css';
 type ViewMode = 'live' | 'sample';
 const displayName = (p: string) => p === 'Buddh' ? 'Buddhsen' : p;
@@ -67,7 +69,7 @@ function PromptOptimizer() {
 }
 function Optimizer({report}: {report:OptimizerReport}) {
   return <section className="optimizer" aria-labelledby="optimizer-title">
-    <header><span className="brain-badge"><BrainIcon/><span className="pulse" aria-hidden="true"/></span><h2 id="optimizer-title">Company brain · harness optimizer</h2><small>Ledger stats are rule-based, computed from agent reports.</small></header>
+    <header><span className="brain-badge"><BrainIcon/><span className="pulse" aria-hidden="true"/></span><h2 id="optimizer-title">Team activity</h2><small>Ledger stats are rule-based, computed from agent reports.</small></header>
     <div className="optimizer-grid">
       <div className="ledger">
         <p className="suggestion"><span>Next suggestion</span>{report.suggestion}</p>
@@ -82,7 +84,6 @@ function Optimizer({report}: {report:OptimizerReport}) {
         </div>
         {report.eventSource === 'surfaces' && <small className="source-caveat">Ledger messages are not in this read; event counts use work-status reports.</small>}
       </div>
-      <PromptOptimizer/>
     </div>
   </section>;
 }
@@ -122,21 +123,24 @@ function TeamApp() {
   const report=useMemo(()=>source.snap?optimize({agents:source.snap.agents,events:source.snap.events??[]},now,source.resolver):null,[source.snap,now,source.resolver]);
   const peopleCount=new Set(views.map(v=>v.person)).size;
   return <main className={`team-shell mode-${mode}`}>
-    <header className="masthead"><a href="/" className="brand"><BrandMark size={30}/>Company Harness <span className="brand-suffix">/ Team</span></a><nav className="app-nav"><a href="/verified.html">Verified run</a><a href="/graph.html">Dependencies</a><a href="/index.html">Live HQ</a><a href="/architecture.html">Architecture</a></nav><span className="private-label">Read only</span></header>
+    <header className="masthead"><a href="/" className="brand"><BrandMark size={30}/>Company Harness <span className="brand-suffix">/ Team</span></a><AppNav current="/team.html"/><span className="private-label">Read only</span></header>
     <section className="intro"><div><p className="eyebrow">SHARED CONTEXT</p><h1>One team.<br/><span>A clear next move.</span></h1></div>
       <div className="view-tabs" role="tablist" aria-label="Choose view">
-        <button role="tab" aria-selected={mode==='live'} onClick={()=>switchMode('live')}><span className={`source-dot ${error?'offline':''}`}/>ContextPlane team <em>live</em></button>
-        <button role="tab" aria-selected={mode==='sample'} onClick={()=>switchMode('sample')}>Office of the CTO <em className="sample-tag">sample</em></button>
+        <button role="tab" aria-selected={mode==='live'} onClick={()=>switchMode('live')}><span className={`source-dot ${error?'offline':''}`}/>Our team <em>live + recorded</em></button>
+        <button role="tab" aria-selected={mode==='sample'} onClick={()=>switchMode('sample')}>How it works · Office of the CTO <em className="sample-tag">sample</em></button>
       </div></section>
-    {mode==='sample' ? <div className="sample-banner" role="note"><strong>SAMPLE DATA</strong> Fictional org of {sampleOrder.length} people across Platform, Payments and Growth, showing the product at scale. Not a live read.</div>
+    {mode==='sample' ? <div className="sample-banner" role="note"><strong>SAMPLE DATA</strong> Fictional org of {sampleOrder.length} people across Platform, Payments and Growth, illustrating the ideal full learning loop. Illustrative numbers, not a live read or recorded result.</div>
       : error && <div className="notice" role="alert">{error} <button onClick={()=>void refresh()} disabled={busy}>Retry</button></div>}
-    <div className="snapshot-meta" aria-live="polite"><span>{source.snap ? `${peopleCount} people · ${views.length} agents · ${report?.active ?? 0} active · ${report?.finished ?? 0} finished · ${report?.idle ?? 0} idle or waiting` : busy ? 'Reading shared state…' : 'No snapshot available'}</span>
-      <span>{mode==='sample' ? 'Sample fixture · times relative to now' : <>Last fetched {snapshot ? when(snapshot.fetchedAt) : 'never'} · refreshes every 5s <button className="link" onClick={()=>void refresh()} disabled={busy}>{busy?'Refreshing…':'↻ Refresh'}</button></>}</span></div>
-    {mode==='live' && snapshot?.possiblyTruncated && <p className="notice">The source returns the latest 100 surfaces. Older agent reports may be missing.</p>}
-    {report && <Optimizer report={report}/>}
-    {source.snap && (mode==='sample'
-      ? <People views={views} order={source.order} now={now} label={p=>p} team={sampleTeamOf}/>
-      : <People views={views} order={source.order} now={now} label={displayName}/>)}
+    {source.snap && <CompanyTree views={views} order={source.order} label={mode==='sample'?(p=>p):displayName} company={mode==='sample'?'Office of the CTO':'ContextPlane'}/>}
+    {mode==='sample' ? <SampleEpisodePanel/> : <LearningEpisodePanel/>}
+    {mode==='live' && <details className="secondary"><summary>Details · agents, activity, prompt optimizer</summary>
+      <div className="snapshot-meta" aria-live="polite"><span>{snapshot ? `${peopleCount} people · ${views.length} agents · ${report?.active ?? 0} active · ${report?.finished ?? 0} finished · ${report?.idle ?? 0} idle or waiting` : busy ? 'Reading shared state…' : 'No snapshot available'}</span>
+        <span>Last fetched {snapshot ? when(snapshot.fetchedAt) : 'never'} · refreshes every 5s <button className="link" onClick={()=>void refresh()} disabled={busy}>{busy?'Refreshing…':'↻ Refresh'}</button></span></div>
+      {snapshot?.possiblyTruncated && <p className="notice">The source returns the latest 100 surfaces. Older agent reports may be missing.</p>}
+      {report && <Optimizer report={report}/>}
+      {snapshot && <People views={views} order={source.order} now={now} label={displayName}/>}
+      <PromptOptimizer/>
+    </details>}
     <footer className="page-footer"><span>Company Harness · {mode==='sample'?'SAMPLE DATA':'shared team state'}</span><span>Agent reports, not verified completion · Stop = waiting, not finished · Times in your timezone</span></footer>
   </main>;
 }

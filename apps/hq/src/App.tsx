@@ -1,3 +1,4 @@
+import { navLinks } from "../shared/nav.ts";
 import { useState, type ReactNode } from "react";
 
 import type { AgentKey } from "../shared/events.ts";
@@ -48,10 +49,7 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
         <button type="button" role="tab" aria-selected={mode === "live"} className={mode === "live" ? "is-active" : ""} onClick={() => onChange("live")}>Live team</button>
         <button type="button" role="tab" aria-selected={mode === "simulation"} className={mode === "simulation" ? "is-active" : ""} onClick={() => onChange("simulation")}>Simulation</button>
       </div>
-      <a href="/team.html">Team</a>
-      <a href="/graph.html">Dependencies</a>
-      <a href="/verified.html">Verified run</a>
-      <a href="/architecture.html">Architecture</a>
+      {navLinks.map(l => <a key={l.href} href={l.href} aria-current={l.href === "/index.html" ? "page" : undefined}>{l.label}</a>)}
     </nav>
   );
 }
