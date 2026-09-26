@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm run build -w @context-plane/persistence && tsc -p tsconfig.build.json",
+    "build": "npm run build -w @context-plane/contracts && npm run build -w @context-plane/persistence && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "npm run build && node --import tsx --test test/*.test.ts",
     "start": "node dist/main.js",
     "smoke": "node dist/smoke.js"
   },

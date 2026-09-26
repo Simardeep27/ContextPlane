@@ -1,0 +1,93 @@
+import assert from 'node:assert/strict';
+import type { AddressInfo } from 'node:net';
+import { afterEach, describe, it } from 'node:test';
+import type { Server } from 'node:http';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { ProjectScope } from '@context-plane/contracts';
+import { createApp } from '../src/app.js';
+import { implementedTools, readHandlers } from '../src/domain.js';
+
+const token = 'test-token-at-least-16-characters';
+const scope = { orgId: 'org_test', projectId: 'project_test' } as ProjectScope;
+const servers: Server[] = [];
+
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => {
+    server.close(error => error ? reject(error) : resolve());
+  })));
+});
+
+async function start(ready: () => Promise<void> = async () => {}) {
+  const repository = {
+    readProjection: async () => null,
+    readReceipt: async () => null,
+  };
+  const app = createApp({
+    token,
+    principal: { scope, identity: 'test-reader', allowedTools: implementedTools },
+    handlers: readHandlers(async () => repository),
+    ready,
+  });
+  const server = app.listen(0, '127.0.0.1');
+  servers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
+  });
+  const port = (server.address() as AddressInfo).port;
+  return new URL(`http://127.0.0.1:${port}`);
+}
+
+describe('MCP HTTP service', () => {
+  it('requires bearer authentication and rejects browser origins', async () => {
+    const base = await start();
+    assert.equal((await fetch(new URL('/readyz', base))).status, 401);
+    assert.equal((await fetch(new URL('/readyz', base), {
+      headers: { Authorization: `Bearer ${token}`, Origin: 'https://example.test' },
+    })).status, 403);
+  });
+
+  it('reports storage readiness without exposing connection details', async () => {
+    const base = await start();
+    const response = await fetch(new URL('/readyz', base), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      atlas: 'ready',
+      service: 'context-plane',
+      mode: 'shared-project-read-only',
+      tools: implementedTools,
+    });
+  });
+
+  it('completes the MCP handshake and exposes only implemented tools', async () => {
+    const base = await start();
+    const client = new Client({ name: 'context-plane-test', version: '1.0.0' });
+    const transport = new StreamableHTTPClientTransport(new URL('/mcp', base), {
+      requestInit: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    try {
+      await client.connect(transport as unknown as Transport);
+      const listed = await client.listTools();
+      assert.deepEqual(listed.tools.map(tool => tool.name), [...implementedTools]);
+      const result = await client.callTool({ name: 'get_project_context', arguments: {} });
+      assert.equal(result.isError, undefined);
+      const content = result.content as Array<{ type: string; text: string }>;
+      assert.match(content[0]!.text, /shared-project-read-only/);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('returns a bounded unavailable response when storage is down', async () => {
+    const base = await start(async () => { throw new Error('secret connection detail'); });
+    const response = await fetch(new URL('/readyz', base), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { atlas: 'unavailable', code: 'STORAGE_UNAVAILABLE' });
+  });
+});
