@@ -42,14 +42,31 @@ test('buildTree nests service -> surface -> consumer and omits consumer-only roo
 });
 
 test('stale runs are runs whose revision is below the current revision', () => {
-  assert.equal(isStaleRun({ dependencyRevision: 7 }, 8), true);
-  assert.equal(isStaleRun({ dependencyRevision: 8 }, 8), false);
-  assert.equal(isStaleRun({ dependencyRevision: null }, 8), false);
+  assert.equal(isStaleRun({ dependencyRevision: 7, hash: null }, 8), true);
+  assert.equal(isStaleRun({ dependencyRevision: 8, hash: null }, 8), false);
+  assert.equal(isStaleRun({ dependencyRevision: null, hash: null }, 8), false);
   const tree = buildTree(input());
   const billing = tree[0]!.children[0]!.children[0]!;
   assert.deepEqual(billing.staleRuns.map(r => r.runId), ['r1']);
   assert.deepEqual(tree[0]!.staleRuns.map(r => r.runId), ['r1']);
   assert.deepEqual(staleRuns([run('a', 'x', 1), run('b', 'x', 3)], 3).map(r => r.runId), ['a']);
+});
+
+test('a run that produced revision N is not stale against N; a non-publishing run at N-1 is', () => {
+  const data = input();
+  data.changes.push({ changeId: 'pub9', nodeId: 'orders:get', at: '2026-01-01T00:02:00.000Z', actor: 'agent_a',
+    summary: 'r8→r9', fromRevision: 8, toRevision: 9, kind: 'publication', hash: 'sha256:aaa', source: 'sample' });
+  data.surfaces[0]!.revision = 9;
+  data.runs = [
+    { ...run('publish-r9', 'dep_orders_ledger', 8, 'published'), hash: 'sha256:aaa' },
+    { ...run('check-r9', 'dep_orders_ledger', 8, 'passed'), hash: 'sha256:aaa' },
+    { ...run('proposal-other', 'dep_orders_ledger', 8, 'blocked'), hash: 'sha256:bbb' },
+    run('no-hash', 'dep_orders_ledger', 8),
+  ];
+  assert.equal(isStaleRun({ dependencyRevision: 8, hash: 'sha256:aaa' }, 9, [{ hash: 'sha256:aaa', toRevision: 9 }]), false);
+  assert.equal(isStaleRun({ dependencyRevision: 8, hash: 'sha256:bbb' }, 9, [{ hash: 'sha256:aaa', toRevision: 9 }]), true);
+  const ledger = buildTree(data)[0]!.children[0]!.children[1]!;
+  assert.deepEqual(ledger.staleRuns.map(r => r.runId).sort(), ['no-hash', 'proposal-other']);
 });
 
 test('change detection flags consumers behind the surface and lists the changes they missed', () => {
@@ -87,8 +104,11 @@ test('recorded verification evidence yields rev 8 with the r7 runs flagged stale
   const billing = surface.children[0]!;
   assert.equal(billing.id, 'dependency_orders_billing');
   assert.equal(billing.verifiedRevision, 8); assert.equal(billing.changed, false);
-  assert.ok(billing.staleRuns.some(r => r.runId === 'propose-stale' && r.outcome === 'blocked'));
-  assert.ok(billing.staleRuns.every(r => r.dependencyRevision === 7));
+  // Only the real stale proposal remains; the r7 chain that published r8 is exempt.
+  assert.deepEqual(billing.staleRuns.map(r => [r.runId, r.outcome]), [['propose-stale', 'blocked']]);
+  assert.ok(billing.runs.some(r => r.runId === 'publish-dev-b' && r.dependencyRevision === 7));
+  const rule = tree.flatMap(t => t.children).find(s => s.label.startsWith('Coordination rule'))!;
+  assert.deepEqual(rule.staleRuns, [], 'the rule proposal that produced epoch 2 is not stale against epoch 2');
   assert.ok(billing.runs.every(r => r.agent === null), 'agent is not in the recorded allowlist and must not be inferred');
   const publication = surface.changes.find(c => c.kind === 'publication' && c.toRevision === 8);
   assert.equal(publication?.fromRevision, 7);

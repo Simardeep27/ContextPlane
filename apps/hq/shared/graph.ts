@@ -47,12 +47,25 @@ const rank: Record<NodeStatus, number> = { current: 0, stale: 1, blocked: 2 };
 export const worst = (statuses: NodeStatus[]): NodeStatus =>
   statuses.reduce<NodeStatus>((a, b) => (rank[b] > rank[a] ? b : a), 'current');
 
-/** A run is stale when it executed against a revision older than the node's current revision. */
-export function isStaleRun(run: Pick<GraphRun, 'dependencyRevision'>, currentRevision: number | null): boolean {
-  return run.dependencyRevision !== null && currentRevision !== null && run.dependencyRevision < currentRevision;
+/**
+ * A run is stale when it checked or proposed against a revision older than the node's current
+ * revision AND did not itself produce the revision that superseded it. A run "produced" a newer
+ * revision when a publication (or rule activation) carries the run's candidate hash and moves
+ * past the run's revision, so the whole propose/stage/check/apply chain of a publication is exempt.
+ */
+export function isStaleRun(run: Pick<GraphRun, 'dependencyRevision' | 'hash'>, currentRevision: number | null,
+  publications: readonly Pick<GraphChange, 'hash' | 'toRevision'>[] = []): boolean {
+  if (run.dependencyRevision === null || currentRevision === null || run.dependencyRevision >= currentRevision) return false;
+  const produced = run.hash !== null && publications.some(p =>
+    p.hash === run.hash && p.toRevision !== null && p.toRevision > run.dependencyRevision!);
+  return !produced;
 }
-export const staleRuns = (runs: readonly GraphRun[], currentRevision: number | null) =>
-  runs.filter(run => isStaleRun(run, currentRevision));
+/** Revision-moving changes that can exempt the runs that produced them. */
+export const supersedingChanges = (changes: readonly GraphChange[]) =>
+  changes.filter(c => c.hash !== null && c.toRevision !== null);
+export const staleRuns = (runs: readonly GraphRun[], currentRevision: number | null,
+  publications: readonly Pick<GraphChange, 'hash' | 'toRevision'>[] = []) =>
+  runs.filter(run => isStaleRun(run, currentRevision, publications));
 
 /** Changed since the consumer last verified: the surface moved past the consumer's verified revision. */
 export function hasChangedSinceVerified(currentRevision: number | null, verifiedRevision: number | null): boolean {
@@ -78,7 +91,7 @@ export function buildTree(input: GraphInput): TreeNode[] {
       const surfaceChanges = changesFor(surface.surfaceId);
       const consumers = deps.map<TreeNode>(dep => {
         const runs = runsFor(dep.dependencyId);
-        const stale = staleRuns(runs, surface.revision);
+        const stale = staleRuns(runs, surface.revision, supersedingChanges(surfaceChanges));
         const changed = hasChangedSinceVerified(surface.revision, dep.verifiedRevision);
         const last = runs.at(-1);
         const status: NodeStatus = last?.outcome === 'blocked' ? 'blocked' : changed ? 'stale' : 'current';
@@ -98,7 +111,7 @@ export function buildTree(input: GraphInput): TreeNode[] {
         detail: surface.detail, revision: surface.revision, currentRevision: surface.revision, verifiedRevision: null,
         changed: consumers.some(c => c.changed), status: worst(consumers.map(c => c.status)),
         usedBy: deps.map(d => ({ consumer: serviceLabel.get(d.consumerServiceId) ?? d.consumerServiceId, revision: d.verifiedRevision })),
-        runs, staleRuns: staleRuns(runs, surface.revision), changes: surfaceChanges, children: consumers,
+        runs, staleRuns: staleRuns(runs, surface.revision, supersedingChanges(surfaceChanges)), changes: surfaceChanges, children: consumers,
       } satisfies TreeNode;
     });
     const all = (key: 'runs' | 'staleRuns' | 'changes') => surfaces.flatMap(s => s[key] as never[]);
