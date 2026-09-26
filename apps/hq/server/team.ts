@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { projectTeam } from '../shared/team.ts';
+import { projectTeam } from '../shared/team.js';
 const endpoint = 'https://context-plane-brain.buddhsen-work.workers.dev/mcp';
 const cookieName = 'hq_team_session';
 const sessionSeconds = 8 * 60 * 60;

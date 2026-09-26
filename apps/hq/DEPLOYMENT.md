@@ -12,6 +12,11 @@ Enable inclusion of source files outside that directory (workspace dependencies)
 Use Node 24, the Vite framework, the committed build command, and output `dist`.
 The Vercel function is `api/team.ts`; `/` rewrites to `team.html`.
 Deploy a preview from the reviewed commit before promoting it.
+When deploying from the repository root with the CLI, pass
+`--local-config apps/hq/vercel.json` so the team-page rewrite is applied.
+Vercel assigns the first deployment to production automatically; verify it
+before sharing. Use `.js` relative imports in the function dependency graph
+so Vercel's emitted JavaScript resolves at runtime.
 
 Set these **server-side** variables for the intended deployment environment:
 
